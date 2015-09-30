@@ -1,0 +1,439 @@
+LAB7
+0x00 扯淡
+首先，感觉CSAPP的实验蛮好玩的，有助于我理解书上的知识，而且写一个shell应该蛮有意思的，所以还是把这试验也做了。（事实一点都不有趣！）
+这个实验内容是实现一个unix下的简易shell, 需要实现的功能包括bg, fg等作业控制命令， 还需要实现ctrl-c, ctrl-z等信息的处理，由于实现这个shell需要进行多进程的编程，这是第一次进行多进程编程，用GDB调试的时候比较不熟练，问题也是稀奇古怪的。
+最后搞了几天终于是把程序都调好了，16个测试文件前15个都能通过，第16不知道怎么测试，说是不从终端接收信号，要从别的进程接收信号，不知道怎么搞。
+0x01 基础说明
+	这次实验我们主要要修改的文件是tsh.c的文件。
+	这里先说明下，外面某些文件的作用。
+myint.c实现睡眠函数功能，命令myint <n> 表示让程序睡眠n秒
+myspin.c: 实现的也是睡眠函数功能，命令myspin <n>表示让程序睡眠n秒，与myint.c的区别在于这个函数睡眠好后就自动退出了，没有检测系统错误。从下面的代码可以看出：
+myint.c
+ 
+myspin.c
+ 
+mysplit.c 这个函数也是实现睡眠功能，但是它是创建一个子进程进行睡眠，然后父进程等待子进程正常睡眠N秒后，继续运行。
+具体可参照代码：
+ 
+mystop.c：让进程暂停几秒，并发送信号
+sdriver.pl:是一个perl脚本，具体的作用应该是用来测试整个shell的
+	接下来，讲讲TSH.C文件里的东西。
+	一开始，要求把名字和编号写进去。我写了学号和我的小名。
+	这个文件，主要要修改下面几个函数。
+ 
+函数作用：
+eval: Main routine that parses and interprets the command line. [70 lines]
+• builtin cmd: Recognizes and interprets the built-in commands: quit, fg, bg, and jobs. [25
+lines]
+• do bgfg: Implements the bg and fg built-in commands. [50 lines]
+• waitfg: Waits for a foreground job to complete. [20 lines]
+• sigchld handler: Catches SIGCHILD signals. 80 lines]
+• sigint handler: Catches SIGINT (ctrl-c) signals. [15 lines]
+• sigtstp handler: Catches SIGTSTP (ctrl-z) signals. [15 lines]
+通俗的讲，（具体可看tsh.c说明文件，里面基本都一一注释了，包括一些系统本身提供的代码）
+ 
+补充：
+这里面多次调用了kill函数。这里说明下kill函数：
+表头文件 #include<sys/types.h>
+#include<signal.h>
+定义函数 int kill(pid_t pid,int sig);
+函数说明
+kill()可以用来送参数sig指定的信号给参数pid指定的进程。参数
+pid有几种情况:
+pid>0 将信号传给进程识别码为pid 的进程。
+pid=0 将信号传给和目前进程相同进程组的所有进程
+pid=-1 将信号广播传送给系统内所有的进程
+pid<0 将信号传给进程组识别码为pid绝对值的所有进程
+0x02 代码详解
+这里详见，代码说明文件tsh.c
+
+0x03 测试解析
+测试前，先要使用make命令，make各种文件（不仅仅包括测试文件）
+tsh测试
+ 
+可以调用系统命令
+ 
+可以调用内置命令
+test1:
+源文件：
+#
+# trace01.txt - Properly terminate on EOF.
+#
+CLOSE
+WAIT
+测试结果：
+ 
+测试分析：
+它正确读出文件中数据，然后在读取close的时候，关闭文件，并等待（wait感觉测不出来，貌似直接关闭了，我后来加了很多wait也是一样）
+test2:
+源文件：
+#
+# trace02.txt - Process builtin quit command.
+#
+quit
+WAIT
+测试结果：
+ 
+测试分析：
+它正确读出文件中数据，然后在读取quit，退出shell
+
+test3:
+源文件：
+ 测试结果：
+ 
+
+测试分析：
+正确显示tsh>quit
+然后退出
+test4:
+源文件：
+ 
+测试结果：
+ 
+
+测试分析：
+在后台运行，myspin睡眠1秒，然后停止。因为在后台，所以显示下面一句，如果在前台则无。
+test5:
+源文件：
+ 
+\046=&
+测试结果：
+ 
+
+测试分析：
+显示命令，然后后台运行，再用jobs显示现在运行的job。（这里时间比较短，才能出效果,因为一共才2秒和3秒）如果在前台运行，则不行。主要原因在前台运行的话，它要等它运行完，才进行下一步。如果在后台就不是。
+
+
+test6:
+源文件：
+ 
+
+测试结果：
+ 
+
+测试分析：
+调用mypin，与sleep，并最后退出
+test7:
+源文件：
+ 
+-e，允许后面的输出进行转义
+测试结果：
+ 
+
+测试分析：
+这里tesh> ./myspin 4 被转义，所以运行的时候，会先暂停4秒。再运行./mypin 4 但是这个程序没运行完，就被sleep2 后面的int打断 
+
+test7:
+源文件：
+#
+# trace07.txt - Forward SIGINT only to foreground job.
+#
+/bin/echo -e tsh> ./myspin 4 \046
+./myspin 4 &
+
+/bin/echo -e tsh> ./myspin 5
+./myspin 5 
+
+SLEEP 2
+INT
+
+/bin/echo tsh> jobs
+jobs
+测试结果：
+ 
+
+测试分析：
+实验结果符合预期
+
+
+test8:
+源文件：
+#
+# trace08.txt - Forward SIGTSTP only to foreground job.
+#
+/bin/echo -e tsh> ./myspin 4 \046
+./myspin 4 &
+
+/bin/echo -e tsh> ./myspin 5
+./myspin 5 
+
+SLEEP 2
+TSTP
+
+/bin/echo tsh> jobs
+jobs
+测试结果：
+ 
+
+测试分析：
+实验结果符合预期
+test9:
+源文件：
+#
+# trace09.txt - Process bg builtin command
+#
+/bin/echo -e tsh> ./myspin 4 \046
+./myspin 4 &
+
+/bin/echo -e tsh> ./myspin 5
+./myspin 5 
+
+SLEEP 2
+TSTP
+
+/bin/echo tsh> jobs
+jobs
+
+/bin/echo tsh> bg %2
+bg %2
+
+/bin/echo tsh> jobs
+jobs
+测试结果：
+ 
+
+测试分析：
+实验结果符合预期
+test10:
+源文件：
+#
+# trace10.txt - Process fg builtin command. 
+#
+/bin/echo -e tsh> ./myspin 4 \046
+./myspin 4 &
+
+SLEEP 1
+/bin/echo tsh> fg %1
+fg %1
+
+SLEEP 1
+TSTP
+
+/bin/echo tsh> jobs
+jobs
+
+/bin/echo tsh> fg %1
+fg %1
+
+/bin/echo tsh> jobs
+jobs
+测试结果：
+ 
+
+测试分析：
+实验结果符合预期
+test11:
+源文件：
+#
+# trace11.txt - Forward SIGINT to every process in foreground process group
+#
+/bin/echo -e tsh> ./mysplit 4
+./mysplit 4 
+
+SLEEP 2
+INT
+
+/bin/echo tsh> /bin/ps a
+/bin/ps a
+测试结果：
+ 
+ 
+
+测试分析：
+实验结果符合预期（ps –a  显示所有进程）
+test12:
+源文件：
+#
+# trace12.txt - Forward SIGTSTP to every process in foreground process group
+#
+/bin/echo -e tsh> ./mysplit 4
+./mysplit 4 
+
+SLEEP 2
+TSTP
+
+/bin/echo tsh> jobs
+jobs
+
+/bin/echo tsh> /bin/ps a
+/bin/ps a
+
+
+测试结果：
+ 
+ 
+
+测试分析：
+实验结果符合预期
+test13:
+源文件：
+#
+# trace13.txt - Restart every stopped process in process group
+#
+/bin/echo -e tsh> ./mysplit 4
+./mysplit 4 
+
+SLEEP 2
+TSTP
+
+/bin/echo tsh> jobs
+jobs
+
+/bin/echo tsh> /bin/ps a
+/bin/ps a
+
+/bin/echo tsh> fg %1
+fg %1
+
+/bin/echo tsh> /bin/ps a
+/bin/ps a
+
+
+测试结果：
+ 
+ 
+ 
+ 
+
+测试分析：
+实验结果符合预期
+test14:
+源文件：
+#
+# trace14.txt - Simple error handling
+#
+/bin/echo tsh> ./bogus
+./bogus
+
+/bin/echo -e tsh> ./myspin 4 \046
+./myspin 4 &
+
+/bin/echo tsh> fg
+fg
+
+/bin/echo tsh> bg
+bg
+
+/bin/echo tsh> fg a
+fg a
+
+/bin/echo tsh> bg a
+bg a
+
+/bin/echo tsh> fg 9999999
+fg 9999999
+
+/bin/echo tsh> bg 9999999
+bg 9999999
+
+/bin/echo tsh> fg %2
+fg %2
+
+/bin/echo tsh> fg %1
+fg %1
+
+SLEEP 2
+TSTP
+
+/bin/echo tsh> bg %2
+bg %2
+
+/bin/echo tsh> bg %1
+bg %1
+
+/bin/echo tsh> jobs
+jobs
+
+
+测试结果：
+ 
+ 
+
+测试分析：
+实验结果符合预期
+test15:
+源文件：
+#
+# trace15.txt - Putting it all together
+#
+
+/bin/echo tsh> ./bogus
+./bogus
+
+/bin/echo tsh> ./myspin 10
+./myspin 10
+
+SLEEP 2
+INT
+
+/bin/echo -e tsh> ./myspin 3 \046
+./myspin 3 &
+
+/bin/echo -e tsh> ./myspin 4 \046
+./myspin 4 &
+
+/bin/echo tsh> jobs
+jobs
+
+/bin/echo tsh> fg %1
+fg %1
+
+SLEEP 2
+TSTP
+
+/bin/echo tsh> jobs
+jobs
+
+/bin/echo tsh> bg %3
+bg %3
+
+/bin/echo tsh> bg %1
+bg %1
+
+/bin/echo tsh> jobs
+jobs
+
+/bin/echo tsh> fg %1
+fg %1
+
+/bin/echo tsh> quit
+quit
+测试结果：
+ 
+
+测试分析：
+这个测试，其实也不能确实是否测试正确。因为它调用了bogus，但是整个文档完全没有bogus。而后面的意外停止，不知道是不是就是由于上面的原因。因为我彻底查了整个文档也没找到原因，希望老师给予解答。
+test16:
+源文件：
+#
+# trace16.txt - Tests whether the shell can handle SIGTSTP and SIGINT
+#     signals that come from other processes instead of the terminal.
+#
+
+/bin/echo tsh> ./mystop 2 
+./mystop 2
+
+SLEEP 3
+
+/bin/echo tsh> jobs
+jobs
+
+/bin/echo tsh> ./myint 2 
+./myint 2
+测试结果：
+ 
+
+测试分析：
+这个不知道怎么测试，说是不从终端接收信号，要从别的进程接收信号，不知道怎么搞。
+
+
+
+0x04 问题探讨
+
+问题：
+1.
+ 
+2.
+ 
+不知道怎么调试这一段程序
+
