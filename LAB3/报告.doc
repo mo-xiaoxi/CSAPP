@@ -1,0 +1,772 @@
+LAB3
+
+首先查看整个bomb.c的代码，发现整个炸弹组是由6个小炸弹（函数）组成的。整个main函数比较简单，函数间变量几乎没有影响。因此，只需要依次解除6个小炸弹即可。
+所以，接下来便开始依次调试各函数。
+调试函数1:
+ 
+汇编源码与说明：
+(gdb) disassemble phase_1
+Dump of assembler code for function phase_1:
+   0x08048f61 <+0>:	push   %ebp   ///压栈  ebp为栈指针 esp为栈指针
+   0x08048f62 <+1>:	mov    %esp,%ebp  //把esp赋值给ebp
+   0x08048f64 <+3>:	sub    $0x18,%esp   //0x18赋值给esp	
+   0x08048f67 <+6>:	movl   $0x804a15c,0x4(%esp)   
+//把内存中地址为$0x804a15c的内容赋值给*（esp+4）
+   0x08048f6f <+14>:	mov    0x8(%ebp),%eax     //*（esp+8）=》eax 就是输入的字符串  （字符串的理由：在后面的代码里，它至于一个对于内存中的内容相等。如果是一个数字或者char的话，也太简单了。我就先猜了是字符串。后来用gdb读一下 果然是字符串。当然这里如果不是字符串也没问题的，只是这样就相对简单。）
+   0x08048f72 <+17>:	mov    %eax,(%esp)    //eax的值赋值给*esp
+   0x08048f75 <+20>:	call   0x8048fab <strings_not_equal>  //比较两字符串是否相等，如果相等令eax为0 否则为1(这里我是根据前后逻辑关系推测的！严谨的讲 可以反汇编这个函数 具体看其中值的具体变化）
+   0x08048f7a <+25>:	test   %eax,%eax     
+   0x08048f7c <+27>:	je     0x8048f83 <phase_1+34>   //如果eax=0 则进入phase2 否则爆炸
+   0x08048f7e <+29>:	call   0x80490d1 <explode_bomb>
+   0x08048f83 <+34>:	leave  //为结束函数做准备
+   0x08048f84 <+35>:	ret    //返回
+End of assembler dump.
+画图分析与解答：
+ 
+（上图的内存地址与后来在linux中汇编出来的地址有出入= =，不过具体就是这个意思）
+从上述的汇编代码可以推出，%eax用来保存输入的字符串。如果输入的字符串与内存$0x804a15c处的字符串相同，炸弹就不会爆炸，可以进入到第二个函数，完成第一个函数的破解！
+所以，只需要查看$0x804a15c处的字符串。
+首先，我使用（gdb) x/s 0x804a15c 进行调试（s代表用字符串的形式读取数据）
+ 
+读出数据{ We have to stand with our North Korean allies.}
+(竟然结果是这玩意！！！中朝真是世代友好啊= =）
+然后使用run命令，测试是否成功？
+ 
+测试成功
+
+调试函数2:
+汇编源码与说明：
+Dump of assembler code for function phase_2:
+   0x08048d6a <+0>:	push   %ebp
+   0x08048d6b <+1>:	mov    %esp,%ebp
+   0x08048d6d <+3>:	push   %esi
+   0x08048d6e <+4>:	push   %ebx
+   0x08048d6f <+5>:	sub    $0x30,%esp
+   0x08048d72 <+8>:	lea    -0x20(%ebp),%eax
+   0x08048d75 <+11>:	mov    %eax,0x4(%esp)
+   0x08048d79 <+15>:	mov    0x8(%ebp),%eax  %eax为中间变量   用于储存输入的数据 
+   0x08048d7c <+18>:	mov    %eax,(%esp)    前面几行 就是初始化与说明这几个数字在栈中的具体地址分布情况 参照图  这里再说明
+   0x08048d7f <+21>:	call   0x804910b <read_six_numbers>    这里是关键！！读取6个数据，说明这个函数的密码很有可能就是6个数字
+   0x08048d84 <+26>:	cmpl   $0x0,-0x20(%ebp)
+   0x08048d88 <+30>:	jne    0x8048d90 <phase_2+38>   这里说明-0x20(%ebp)的值等于0
+（+38为炸弹）
+   0x08048d8a <+32>:	cmpl   $0x1,-0x1c(%ebp)
+   0x08048d8e <+36>:	je     0x8048d95 <phase_2+43>  说明-0x1c(%ebp)等于1
+   0x08048d90 <+38>:	call   0x80490d1 <explode_bomb>
+   0x08048d95 <+43>:	lea    -0x18(%ebp),%ebx   将-0x18(%ebp)加载到%ebx
+   0x08048d98 <+46>:	lea    -0x8(%ebp),%esi   将-0x8(%ebp)加载到%esi
+   0x08048d9b <+49>:	mov    -0x4(%ebx),%eax 将-0x4(%ebx)（也就是-1c（%ebp），所以为1）赋给%eax
+   0x08048d9e <+52>:	add    -0x8(%ebx),%eax   0+1（-0x8(%ebx)就是-0x20（%ebp）                     
+   0x08048da1 <+55>:	cmp    %eax,(%ebx)     0+1  =>  即-0x20（%ebp）
+   0x08048da3 <+57>:	je     0x8048daa <phase_2+64>  
+   0x08048da5 <+59>:	call   0x80490d1 <explode_bomb>
+---Type <return> to continue, or q <return> to quit---
+   0x08048daa <+64>:	add    $0x4,%ebx   ebx 上移一位（存的是一个int类型的数组  4个字节  32位）
+   0x08048dad <+67>:	cmp    %esi,%ebx    如果ebx与esi指向同一地址 退出循环 
+   0x08048daf <+69>:	jne    0x8048d9b <phase_2+49> //  这几行形成一个循环
+   0x08048db1 <+71>:	add    $0x30,%esp  下面就是退出函数的处理
+   0x08048db4 <+74>:	pop    %ebx
+   0x08048db5 <+75>:	pop    %esi
+   0x08048db6 <+76>:	pop    %ebp
+   0x08048db7 <+77>:	ret    
+End of assembler dump.
+画图分析与解答：
+ 
+这题最关键的就是注意<read_six_numbers>这个函数，依据函数名字可以猜测这函数的密码应该是6个数字。 紧接着通过分析
+   0x08048d84 <+26>:	cmpl   $0x0,-0x20(%ebp)
+   0x08048d88 <+30>:	jne    0x8048d90 <phase_2+38>   这里说明-0x20(%ebp)的值等于0
+（+38为炸弹）  
+   0x08048d8a <+32>:	cmpl   $0x1,-0x1c(%ebp)
+   0x08048d8e <+36>:	je     0x8048d95 <phase_2+43>  说明-0x1c(%ebp)等于1
+   0x08048d90 <+38>:	call   0x80490d1 <explode_bomb>
+
+可以得到第一个数是0 第二个数是1  （为什么数值的前后顺序 参照栈结构FILO）
+6个数分别分配在 -20 -1c -18 -14 -10 -1c 位置上  当ebx与esi指向同一位置时，循环结束
+  然后就是在上图画具体循环，找到逻辑关系
+a[0]=0 a[1]=1 a[2]=a[0]+a[1]=1 a[3]=a[2]+a[1]=2 a[4]=3 a[5]=5
+即答案为  0 1 1 2 3 5
+测试：
+ 
+调试函数3:
+发现直接GDB disassemble 出来的汇编代码太长，看起来不方便 所以用objdump命令 汇编导出到一个文件下
+
+汇编源码与说明：
+   0x08048ea1 <+0>:	push   %ebp
+   0x08048ea2 <+1>:	mov    %esp,%ebp
+   0x08048ea4 <+3>:	sub    $0x28,%esp
+   0x08048ea7 <+6>:	lea    -0x10(%ebp),%eax  第二个数
+   0x08048eaa <+9>:	mov    %eax,0xc(%esp)
+   0x08048eae <+13>:	lea    -0xc(%ebp),%eax   第一个数
+   0x08048eb1 <+16>:	mov    %eax,0x8(%esp)
+   0x08048eb5 <+20>:	movl   $0x804a23e,0x4(%esp)   x/s  读出%d %d
+   0x08048ebd <+28>:	mov    0x8(%ebp),%eax
+   0x08048ec0 <+31>:	mov    %eax,(%esp)//前面的句子用来构造栈
+   0x08048ec3 <+34>:	call   0x8048840 <__isoc99_sscanf@plt>  调用函数sscanf
+   0x08048ec8 <+39>:	cmp    $0x1,%eax  eax-1
+   0x08048ecb <+42>:	jg     0x8048ed2 <phase_3+49>  说明%eax>1 即输入参数个数必须大于1  （sscanf）
+   0x08048ecd <+44>:	call   0x80490d1 <explode_bomb>
+   0x08048ed2 <+49>:	cmpl   $0x7,-0xc(%ebp) 
+   0x08048ed6 <+53>:	ja     0x8048f43 <phase_3+162>  说明储存在-0xc(%ebp)的数不超过7
+   0x08048ed8 <+55>:	mov    -0xc(%ebp),%eax
+   0x08048edb <+58>:	jmp    *0x804a1a0(,%eax,4)//看到这句，那么这里肯定有switch语句
+ （这是典型的switch跳转语句，即跳转到以地址*0x804a1a0为基址的跳转表中）读出基值为+113  这里假设-0xc(%ebp)为0  不唯一 
+   0x08048ee2 <+65>:	mov    $0x0,%eax      %eax=0
+   0x08048ee7 <+70>:	jmp    0x8048f3c <phase_3+155>
+   0x08048ee9 <+72>:	mov    $0x0,%eax
+   0x08048eee <+77>:	xchg   %ax,%ax
+   0x08048ef0 <+79>:	jmp    0x8048f37 <phase_3+150>
+   0x08048ef2 <+81>:	mov    $0x0,%eax
+   0x08048ef7 <+86>:	jmp    0x8048f32 <phase_3+145>
+   0x08048ef9 <+88>:	mov    $0x0,%eax
+   0x08048efe <+93>:	xchg   %ax,%ax
+   0x08048f00 <+95>:	jmp    0x8048f2d <phase_3+140>
+   0x08048f02 <+97>:	mov    $0x0,%eax
+   0x08048f07 <+102>:	jmp    0x8048f28 <phase_3+135>
+   0x08048f09 <+104>:	mov    $0x0,%eax
+   0x08048f0e <+109>:	xchg   %ax,%ax
+   0x08048f10 <+111>:	jmp    0x8048f23 <phase_3+130>
+   0x08048f12 <+113>:	mov    $0x314,%eax   eax=314
+   0x08048f17 <+118>:	jmp    0x8048f1e <phase_3+125>
+   0x08048f19 <+120>:	mov    $0x0,%eax 
+   0x08048f1e <+125>:	sub    $0x35a,%eax     eax=314-35a=-46
+   0x08048f23 <+130>:	add    $0x2ef,%eax 
+   0x08048f28 <+135>:	sub    $0x216,%eax
+   0x08048f2d <+140>:	add    $0x216,%eax
+   0x08048f32 <+145>:	sub    $0x216,%eax
+   0x08048f37 <+150>:	add    $0x216,%eax   -46+2ef-216+216-216+216=2A9
+   0x08048f3c <+155>:	sub    $0x216,%eax   2a9-216=93
+   0x08048f41 <+160>:	jmp    0x8048f4d <phase_3+172>
+   0x08048f43 <+162>:	call   0x80490d1 <explode_bomb>
+   0x08048f48 <+167>:	mov    $0x0,%eax
+   0x08048f4d <+172>:	cmpl   $0x5,-0xc(%ebp)   
+   0x08048f51 <+176>:	jg     0x8048f58 <phase_3+183>   -0xc(%ebp)<=5
+   0x08048f53 <+178>:	cmp    -0x10(%ebp),%eax   -0x10(%ebp)==93转为10进制 147     
+   0x08048f56 <+181>:	je     0x8048f5d <phase_3+188>
+   0x08048f58 <+183>:	call   0x80490d1 <explode_bomb>
+   0x08048f5d <+188>:	leave  
+   0x08048f5e <+189>:	xchg   %ax,%ax//不明白这句啥意思
+   0x08048f60 <+191>:	ret    
+
+分析与解答：
+ 
+这题，在构造栈的过程中，可以知道会压入两个参数。后来读movl   $0x804a23e,0x4(%esp) 这句就觉得很奇怪，觉得这是解题的关键。然后看到call了sccanf函数，然后猜测0x804a23e中必定储存着这个函数的细节。
+读取0x804a23e中的值，得到输入参数
+ 
+得知，密码应该是两个数
+再往下看到cmpl   $0x7,-0xc(%ebp) ，即输入的第一个参数值必须不大于7。然后看到jmp    *0x804a1a0(,%eax,4)，这是典型的switch跳转语句，即跳转到以地址*0x804a1a0为基址的跳转表中。用GDB p/x *0x804a1a0，读出switch跳转基值(p表示printf )
+ 
+不过我觉得用x/s命令更好
+ 
+得到地址+113，在代码中找到该处指令，得到第一个输入为0时对应的第二个输入为0x93,转换成十进制为147。经调试后结果正确。
+ 
+答案1: 0 147
+当然答案不唯一，
+当第一个输入为1时，通过p/x *0x804a1a4,得到地址0x8048f19，找到第二个输入为-641。 
+其他就不写了（第一个输入要小于等于5，其他暂不追究。。）
+调试函数4:
+汇编源码与说明：
+Dump of assembler code for function phase_4:
+   0x08048e2e <+0>:	push   %ebp
+   0x08048e2f <+1>:	mov    %esp,%ebp
+   0x08048e31 <+3>:	sub    $0x28,%esp
+   0x08048e34 <+6>:	lea    -0x10(%ebp),%eax  第二个数
+   0x08048e37 <+9>:	mov    %eax,0xc(%esp)   为什么栈中临时变量区一直有对称的结构
+   0x08048e3b <+13>:	lea    -0xc(%ebp),%eax  第一个数
+   0x08048e3e <+16>:	mov    %eax,0x8(%esp)
+   0x08048e42 <+20>:	movl   $0x804a23e,0x4(%esp)
+   0x08048e4a <+28>:	mov    0x8(%ebp),%eax
+   0x08048e4d <+31>:	mov    %eax,(%esp)
+   0x08048e50 <+34>:	call   0x8048840 <__isoc99_sscanf@plt>//读取0x804a23e中的值  %d %d 
+   0x08048e55 <+39>:	cmp    $0x2,%eax
+   0x08048e58 <+42>:	jne    0x8048e66 <phase_4+56>  eax=2  输入两个数
+   0x08048e5a <+44>:	mov    -0xc(%ebp),%eax
+   0x08048e5d <+47>:	test   %eax,%eax
+   0x08048e5f <+49>:	js     0x8048e66 <phase_4+56>  SF 负数跳转  a1>0
+   0x08048e61 <+51>:	cmp    $0xe,%eax
+   0x08048e64 <+54>:	jle    0x8048e6b <phase_4+61>  a1<=e   即第一个数大于0小于等于14
+   0x08048e66 <+56>:	call   0x80490d1 <explode_bomb>
+   0x08048e6b <+61>:	movl   $0xe,0x8(%esp)
+   0x08048e73 <+69>:	movl   $0x0,0x4(%esp)
+   0x08048e7b <+77>:	mov    -0xc(%ebp),%eax
+---Type <return> to continue, or q <return> to quit---
+   0x08048e7e <+80>:	mov    %eax,(%esp)   把14 0 a1分别作为参数3、2、 1传递给func4
+   0x08048e81 <+83>:	call   0x8048b60 <func4>  调用fun4
+   0x08048e86 <+88>:	cmp    $0x1,%eax  结合下一句，func4返回值应该是1
+   0x08048e89 <+91>:	jne    0x8048e91 <phase_4+99>  这里推出eax应该等于1，不等于则爆炸
+   0x08048e8b <+93>:	cmpl   $0x1,-0x10(%ebp)
+   0x08048e8f <+97>:	je     0x8048e9d <phase_4+111> 这里说明a2等于1
+   0x08048e91 <+99>:	lea    0x0(%esi,%eiz,1),%esi
+   0x08048e98 <+106>:	call   0x80490d1 <explode_bomb>
+   0x08048e9d <+111>:	leave  
+   0x08048e9e <+112>:	xchg   %ax,%ax
+   0x08048ea0 <+114>:	ret    
+End of assembler dump.
+反汇编func4:
+(gdb) disassemble func4
+Dump of assembler code for function func4:
+   0x08048b60 <+0>:	push   %ebp
+   0x08048b61 <+1>:	mov    %esp,%ebp
+   0x08048b63 <+3>:	sub    $0x18,%esp
+   0x08048b66 <+6>:	mov    %ebx,-0x8(%ebp)
+   0x08048b69 <+9>:	mov    %esi,-0x4(%ebp)
+   0x08048b6c <+12>:	mov    0x8(%ebp),%edx  a1     8   8  8   8
+   0x08048b6f <+15>:	mov    0xc(%ebp),%eax   0     0   8   8   8
+   0x08048b72 <+18>:	mov    0x10(%ebp),%ebx  14    14  14  10  8
+   0x08048b75 <+21>:	mov    %ebx,%ecx  ebx=ecx=14   14  14  10  8
+   0x08048b77 <+23>:	sub    %eax,%ecx   ecx=14-0=14   14    6 2   0
+   0x08048b79 <+25>:	mov    %ecx,%esi  esi=ecx=14      14    6 2   0                             
+   0x08048b7b <+27>:	shr    $0x1f,%esi   逻辑右移31位 0 0 0  0
+   0x08048b7e <+30>:	lea    (%esi,%ecx,1),%ecx  esi+ecx=》ecx  14 6 2 0  
+   0x08048b81 <+33>:	sar    %ecx  算数右移一位  7  3 1  0
+   0x08048b83 <+35>:	add    %eax,%ecx   7+0 =7    8+3=11 8+1=9  8 
+   0x08048b85 <+37>:	cmp    %edx,%ecx   a1  11    8
+   0x08048b87 <+39>:	jle  0x8048ba0 <func4+64>  a1大于等于7 则跳       
+   0x08048b89 <+41>:	sub    $0x1,%ecx        10  8
+   0x08048b8c <+44>:	mov    %ecx,0x8(%esp)  10  8
+   0x08048b90 <+48>:	mov    %eax,0x4(%esp)   8   8
+   0x08048b94 <+52>:	mov    %edx,(%esp)  8    8
+   0x08048b97 <+55>:	call   0x8048b60 <func4>
+---Type <return> to continue, or q <return> to quit---
+   0x08048b9c <+60>:	add    %eax,%eax  28
+   0x08048b9e <+62>:	jmp    0x8048bc0 <func4+96>
+   0x08048ba0 <+64>:	mov    $0x0,%eax   eax=0  
+   0x08048ba5 <+69>:	cmp    %edx,%ecx  a1  7   8  7
+   0x08048ba7 <+71>:	jge    0x8048bc0 <func4+96>   a1小于等于7则跳
+   0x08048ba9 <+73>:	mov    %ebx,0x8(%esp)   ebx=14  14
+   0x08048bad <+77>:	add    $0x1,%ecx     ecx=8  9
+   0x08048bb0 <+80>:	mov    %ecx,0x4(%esp)  8   9
+   0x08048bb4 <+84>:	mov    %edx,(%esp)     8
+   0x08048bb7 <+87>:	call   0x8048b60 <func4>    
+   0x08048bbc <+92>:	lea    0x1(%eax,%eax,1),%eax   这里的eax应该是1  从这里也说明+87的语句只能调用一次  如果调用两次以上 eax的返回值就不为1了  所以可以假设第一个func递归N次 第二个func4调用一次  慢慢凑出来
+   0x08048bc0 <+96>:	mov    -0x8(%ebp),%ebx
+   0x08048bc3 <+99>:	mov    -0x4(%ebp),%esi
+   0x08048bc6 <+102>:	mov    %ebp,%esp
+   0x08048bc8 <+104>:	pop    %ebp
+   0x08048bc9 <+105>:	ret    
+End of assembler dump.
+
+分析与解答：
+ 
+函数4的主函数过程和函数3差不多，这里只是call了func4函数而已（后来发现func4真特么难！）
+首先读取0x804a23e的值
+ 
+得知密码应该为两个数  
+然后通过句子
+	test   %eax,%eax
+  0x8048e66 <phase_4+56>  SF 负数跳转  
+得知第一个数应该a1>=0
+  0x08048e61 <+51>:	cmp    $0xe,%eax
+   0x08048e64 <+54>:	jle    0x8048e6b <phase_4+61>  a1<=e   即第一个数大于0小于等于14
+即a1的取值范围为[0,14]
+然后函数将a1，0，14分别作为第一、二、三个参数传入func4.再看func4后面句子
+cmp    $0x1,%eax  结合下一句，func4返回值应该是1
+0x08048e89 <+91>:	jne    0x8048e91 <phase_4+99>  这里推出eax应该等于1，不等于则爆炸
+可得 func4的返回值应该为1.
+接下来就是对func4的分析了。
+首先，通读整个函数，发现这个函数自己调用func4，即本身。所以，func4应该是一个递归函数。
+然后，画图读第二遍，发现func4只有当jle，jge同时跳的时候，整个函数才返回。
+（整个函数逻辑有点复杂。输入的数应该要和第二个参数与第三个参数经过种种运算后的值相等才可以。。。最后，实在太麻烦，又看到a1取值范围并不是很大，就想到用二分法，猜出a1的值。  慢慢暴力破解！（也可以参照我func4代码中所说的方法，找出答案。只是太麻烦，没有暴力简单。
+）
+最后又分析函数4中，
+   0x08048e8b <+93>:	cmpl   $0x1,-0x10(%ebp)
+   0x08048e8f <+97>:	je     0x8048e9d <phase_4+111> 
+说明a2=1
+综上  密码应该是 8 1 或者9 1 或 10 1 或者11 1
+
+
+调试函数5:
+汇编源码与说明：
+(gdb) disassemble phase_5
+Dump of assembler code for function phase_5:
+   0x08048db8 <+0>:	push   %ebp
+   0x08048db9 <+1>:	mov    %esp,%ebp
+   0x08048dbb <+3>:	push   %esi
+   0x08048dbc <+4>:	push   %ebx
+   0x08048dbd <+5>:	sub    $0x20,%esp
+   0x08048dc0 <+8>:	lea    -0x10(%ebp),%eax  第二个数
+   0x08048dc3 <+11>:	mov    %eax,0xc(%esp)
+   0x08048dc7 <+15>:	lea    -0xc(%ebp),%eax  第一个数
+   0x08048dca <+18>:	mov    %eax,0x8(%esp)
+   0x08048dce <+22>:	movl   $0x804a23e,0x4(%esp)  读取 0x804a23e:	"%d %d"  输入两个数
+   0x08048dd6 <+30>:	mov    0x8(%ebp),%eax
+   0x08048dd9 <+33>:	mov    %eax,(%esp)
+   0x08048ddc <+36>:	call   0x8048840 <__isoc99_sscanf@plt>
+   0x08048de1 <+41>:	cmp    $0x1,%eax
+   0x08048de4 <+44>:	jg     0x8048deb <phase_5+51>  表示参数数量大于1
+   0x08048de6 <+46>:	call   0x80490d1 <explode_bomb>
+   0x08048deb <+51>:	mov    -0xc(%ebp),%eax
+   0x08048dee <+54>:	and    $0xf,%eax  取低位4位a1
+   0x08048df1 <+57>:	mov    %eax,-0xc(%ebp)
+   0x08048df4 <+60>:	cmp    $0xf,%eax
+   0x08048df7 <+63>:	je     0x8048e22 <phase_5+106>  a1低位4位不为0xf
+   0x08048df9 <+65>:	mov    $0x0,%ecx  ecx=0
+   0x08048dfe <+70>:	mov    $0x0,%edx  edx=0
+   0x08048e03 <+75>:	mov    $0x804a1c0,%ebx  读取0x804a1c0 <array.3488>:	"\n"
+   这里就可以确实，这里有个数组  基值为0x804a1c0,a[n]  用指针读出为a 2 e 7 8 c f b 0 4 1 d 3 9 6 5   
+   0x08048e08 <+80>:	add    $0x1,%edx   1  最终是15
+   0x08048e0b <+83>:	mov    (%ebx,%eax,4),%eax  eax=*(ebx+4eax)  12  后来发现 这是一个序列   如果输入0  用断点测试的方法  a  1  2  14  6  15  炸 
+最后凑出来是5 
+   0x08048e0e <+86>:	add    %eax,%ecx   12
+   0x08048e10 <+88>:	cmp    $0xf,%eax  12   
+   0x08048e13 <+91>:	jne    0x8048e08 <phase_5+80>   上面edx为循环变量。这个循环里会根据eax，以其为索引找以地址0x804a1c开头的数组中的值。然后对ecx求和。最后和等于0X1111  限制条件：循环15次，eax永远！=15      以5进入，最后eax=3 ecx=15 edx=2
+   0x08048e15 <+93>:	mov    %eax,-0xc(%ebp)  1111
+   0x08048e18 <+96>:	cmp    $0xf,%edx     
+   0x08048e1b <+99>:	jne    0x8048e22 <phase_5+106>  说明，edx=0xf 即上面循环了15次
+   0x08048e1d <+101>:	cmp    %ecx,-0x10(%ebp)
+   0x08048e20 <+104>:	je     0x8048e27 <phase_5+111>    ecx=a2
+   0x08048e22 <+106>:	call   0x80490d1 <explode_bomb>
+   0x08048e27 <+111>:	add    $0x20,%esp  退出
+   0x08048e2a <+114>:	pop    %ebx
+   0x08048e2b <+115>:	pop    %esi
+   0x08048e2c <+116>:	pop    %ebp
+   0x08048e2d <+117>:	ret    
+End of assembler dump.
+分析与解答：
+首先可以看到需要输入两个数，否则bomb。
+然后就对第一个数进行操作了，首先取其后四位，如果其后四位全为1则爆炸。
+然后看到进入一个循环。
+这个循环，edx为循环变量。这个循环里会根据eax，以其为索引找以地址开头的数组中的值，
+然后求和，和的值储存在ecx。
+最后看到cmp    %ecx,-0x10(%ebp)，说明这个循环的和应该等于输入的第二个参数即可。
+本来以为第一个数随便输个数，然后依据第一个数算出来的值等于第二个数就可以，后来测试发现不行。
+然后就打算分析数组，我首先连续读32位
+p/x *(int *)(0x804a1c0）@100 发现这个数组一共为16位
+ 
+（大家，可以用p/x *(int *)(0x804a1c0@16读取）
+0 1 2 3 4 5 6 7 8  9 a b c d e f 
+a 2 e 7 8 c  f b 0 4 1 d 3 9 6 5
+也就是说，依据循环规则，在15次循环中，eax不能取到F
+利用反推法
+如果取到f ，则上一次eax就为6 
+上一次就是14-----e
+写序列
+0 a
+1 2
+2 e
+3 7
+4 8
+5 c
+6 f
+7 b
+8 0
+9 4
+a 1
+b d
+c 3
+d 9
+e 6
+f 5
+同理 逆推序列 f  6  e  2  1 a  0 8 4 9 d b 7 3 c 5
+所以如果第一个数为5，则可以（5为第十六个数，在上面序列中。其实最后感觉还是暴力破，比较方便，逆推头痛）
+然后输入5 10  通过断点调试，确定第二个数为115
+break *0x08048e1d 
+ 
+ 
+看到 ecx为115  
+即  得出答案5 115
+测试 正确
+调试函数6:
+汇编源码与说明：
+(gdb) disassemble phase_6
+Dump of assembler code for function phase_6:
+   0x08048c89 <+0>:	push   %ebp
+   0x08048c8a <+1>:	mov    %esp,%ebp
+   0x08048c8c <+3>:	push   %edi
+   0x08048c8d <+4>:	push   %esi
+   0x08048c8e <+5>:	push   %ebx
+   0x08048c8f <+6>:	sub    $0x5c,%esp
+   0x08048c92 <+9>:	lea    -0x30(%ebp),%eax  
+   0x08048c95 <+12>:	mov    %eax,0x4(%esp)
+   0x08048c99 <+16>:	mov    0x8(%ebp),%eax
+   0x08048c9c <+19>:	mov    %eax,(%esp)    栈初始化
+   0x08048c9f <+22>:	call   0x804910b <read_six_numbers>  读取6个数
+   0x08048ca4 <+27>:	mov    $0x0,%esi    esi=0
+   0x08048ca9 <+32>:	lea    -0x30(%ebp),%edi  edi是索引地址
+   0x08048cac <+35>:	mov    (%edi,%esi,4),%eax  
+   0x08048caf <+38>:	sub    $0x1,%eax    eax小于等于6
+   0x08048cb2 <+41>:	cmp    $0x5,%eax   
+   0x08048cb5 <+44>:	jbe    0x8048cbc <phase_6+51>   jbe 小于等于跳转 
+   0x08048cb7 <+46>:	call   0x80490d1 <explode_bomb> 第一个数小于等于6
+   0x08048cbc <+51>:	add    $0x1,%esi  esi+1=1
+   0x08048cbf <+54>:	cmp    $0x6,%esi   6 1
+   0x08048cc2 <+57>:	je     0x8048ce6 <phase_6+93>  不跳  最后从这里跳出到93
+   0x08048cc4 <+59>:	lea    (%edi,%esi,4),%ebx  第二个数
+---Type <return> to continue, or q <return> to quit---
+   0x08048cc7 <+62>:	mov    %esi,-0x4c(%ebp)
+   0x08048cca <+65>:	mov    -0x4(%edi,%esi,4),%eax
+   0x08048cce <+69>:	cmp    (%ebx),%eax  第二个数不等于第一个数  这里说明两个数不能相等
+   0x08048cd0 <+71>:	jne    0x8048cd7 <phase_6+78>
+   0x08048cd2 <+73>:	call   0x80490d1 <explode_bomb>
+   0x08048cd7 <+78>:	addl   $0x1,-0x4c(%ebp)
+   0x08048cdb <+82>:	add    $0x4,%ebx
+   0x08048cde <+85>:	cmpl   $0x5,-0x4c(%ebp)
+   0x08048ce2 <+89>:	jle    0x8048cca <phase_6+65> 小于等于5
+////这里前面的句子就是一个循环验证，说明共六个数，每个数各不相同 均小于等于6
+   0x08048ce4 <+91>:	jmp    0x8048cac <phase_6+35>
+   0x08048ce6 <+93>:	mov    $0x0,%ebx     ebx=0
+   0x08048ceb <+98>:	lea    -0x30(%ebp),%edi  edi为索引地址
+   0x08048cee <+101>：jmp    0x8048d06 <phase_6+125>
+   0x08048cf0 <+103>:	mov    0x8(%edx),%edx   链表地址赋值 这里8应该表示链表中有两个数，后面验证正确
+   0x08048cf3 <+106>:	add    $0x1,%eax    eax+1
+   0x08048cf6 <+109>:	cmp    %ecx,%eax
+   0x08048cf8 <+111>:	jne    0x8048cf0 <phase_6+103>   不等于 就跳
+   0x08048cfa <+113>:	mov    %edx,-0x48(%ebp,%esi,4)
+   0x08048cfe <+117>:	add    $0x1,%ebx
+   0x08048d01 <+120>:	cmp    $0x6,%ebx
+   0x08048d04 <+123>:	je     0x8048d1c <phase_6+147>  这里说明也要循环六次
+   0x08048d06 <+125>:	mov    %ebx,%esi
+   0x08048d08 <+127>:	mov    (%edi,%ebx,4),%ecx
+---Type <return> to continue, or q <return> to quit---
+   0x08048d0b <+130>:	mov    $0x804c0c4,%edx  一开始以为这里是一个序列，后来验证错误  最后想到这里存在一个链表
+   0x08048d10 <+135>:	mov    $0x1,%eax
+   0x08048d15 <+140>:	cmp    $0x1,%ecx
+   0x08048d18 <+143>:	jg     0x8048cf0 <phase_6+103>
+   0x08048d1a <+145>:	jmp    0x8048cfa <phase_6+113>    
+这一块的C语言
+for(int i = 0; i < 6; i++)
+   {
+     addr = 0x0x804c0c4；
+        for(int j = 0; j < data[i]; j++)
+          addr = *(addr + 0x8);
+      -0x30(%ebp) + 4 * i = addr;
+  }
+这里的意思就是按输入序列排序
+
+   0x08048d1c <+147>:	mov    -0x48(%ebp),%ebx  ebx储存链表初始地址
+   0x08048d1f <+150>:	mov    -0x44(%ebp),%eax
+   0x08048d22 <+153>:	mov    %eax,0x8(%ebx)   -0x44(%ebp)放入了*(-0x48(%ebp)) + 0x8  下面同理
+   0x08048d25 <+156>:	mov    -0x40(%ebp),%edx
+   0x08048d28 <+159>:	mov    %edx,0x8(%eax)
+   0x08048d2b <+162>:	mov    -0x3c(%ebp),%eax
+   0x08048d2e <+165>:	mov    %eax,0x8(%edx)
+   0x08048d31 <+168>:	mov    -0x38(%ebp),%edx
+   0x08048d34 <+171>:	mov    %edx,0x8(%eax)
+   0x08048d37 <+174>:	mov    -0x34(%ebp),%eax
+   0x08048d3a <+177>:	mov    %eax,0x8(%edx)
+   0x08048d3d <+180>:	movl   $0x0,0x8(%eax)   前面这些语句，明显可以看出构造了一个链表
+   0x08048d44 <+187>:	mov    $0x0,%esi
+   0x08048d49 <+192>:	mov    0x8(%ebx),%eax  第二个链表的值  a[n+1]
+   0x08048d4c <+195>:	mov    (%ebx),%edx  第一个链表中的值  a[n]
+   0x08048d4e <+197>:	cmp    (%eax),%edx   a[n]>=a[n+1]
+   0x08048d50 <+199>:	jge    0x8048d57 <phase_6+206>
+   0x08048d52 <+201>:	call   0x80490d1 <explode_bomb>
+---Type <return> to continue, or q <return> to quit---
+   0x08048d57 <+206>:	mov    0x8(%ebx),%ebx
+   0x08048d5a <+209>:	add    $0x1,%esi
+   0x08048d5d <+212>:	cmp    $0x5,%esi   这里循环5次，比较5次
+   0x08048d60 <+215>:	jne    0x8048d49 <phase_6+192>
+C语言代码
+struct node
+    {
+         int x, y;
+         node *next;
+     };
+      
+     node a = firstNode;
+     for(int i = 0; i < 5; i++)
+     {
+        node b = a->next;
+   
+       if (a->x >= b->x)
+           a = b;
+        else
+            explode_bomb();
+    }
+
+   0x08048d62 <+217>:	add    $0x5c,%esp  退出函数
+   0x08048d65 <+220>:	pop    %ebx
+   0x08048d66 <+221>:	pop    %esi
+   0x08048d67 <+222>:	pop    %edi
+   0x08048d68 <+223>:	pop    %ebp
+   0x08048d69 <+224>:	ret    
+End of assembler dump.
+
+分析与解答：
+这题目汇编代码老长老长，真心看得心累。
+一开始读到call   0x804910b <read_six_numbers>  ，得知 这是要输入6个数
+然后经过一连串的循环（这个循环也比较麻烦，貌似嵌套了一个循环，即一个大循环中有一个小循环），最后发现，这也只是说这六个数都小于等于6，且各不相同。
+它具体的C语言代码，可以这样写
+        for(int i = 0; ; i++)
+        {
+            if (data[i] > 6)
+               explode_bomb();
+            if (i + 1 == 6)
+               goto 下一循环;
+          for(int j = i + 1; j <= 5; j++)
+           {
+               if (data[j] == data[i])
+                   explode_bomb();
+           }
+       }
+再继续看代码，发现它又进入了一个循环。
+这个循环更加蛋疼，看得心也很累！
+它首先进入一个循环，
+这一块的C语言
+for(int i = 0; i < 6; i++)
+   {
+     addr = 0x0x804c0c4；
+        for(int j = 0; j < data[i]; j++)
+          addr = *(addr + 0x8);
+       -0x30(%ebp + 4 * i) = addr;
+  }
+按输入序列排序，并将其放进栈中
+然后构造了一个链表，再对链表的值进行对比
+struct node
+    {
+         int x, y;
+         node *next;
+     };
+      
+     node a = firstNode;
+     for(int i = 0; i < 5; i++)
+     {
+        node b = a->next;
+       if (a->x >= b->x)
+           a = b;
+        else
+            explode_bomb();
+}
+按输入序列对链表重新排序，并且判定排序前链表是否为降序排序
+所以，我们只需要检查0x804c0c4及其之后步长为8的链表的值就可以
+用GDB工具查询
+
+                              *0x804c0c4= 0x1a7  1
+
+*(0x804c0c4 + 8) = 0x804c0b8，   *0x804c0b8= 0x6c   2
+
+*(0x804c0b8 + 8) = 0x804c0ac,    *0x804c0ac= 0x155   3 
+
+*0x804c0ac+ 8) = 0x804c0a0,     *0x804c0a0= 0x187   4
+ 
+*(0x804c0a0 + 8) = 0x804c094,   * 0x804c094 = 0x3bd  5
+
+*( 0x804c094 + 8) = 0x804c088,    *0x804c088 = 0x255  6
+排序，由大到小
+5 6 1 4 3 2
+后来看了廖总的报告，感觉它的图片说明比较形象，
+所以下面贴上，廖总的图片补充说明！
+ 
+ 
+ 
+ 
+ 
+通过查看链表各个节点得到原链表序列，将其进行降序排序后得到5 6 1 4 3 2的输入序列
+
+
+打开隐藏函数:
+由于老师在课上讲到，这个实验中还存在一个隐藏函数。既然已经做完了前留个，便自然打算也破了这个隐藏函数！
+  首先，从前文用objdumb反汇编的TXT文档中，寻找到唯一提到进入秘密关卡的<phase_defused>函数
+这里贴上<phase_defused>的源码：
+   0x08049014 <+0>:	push   %ebp
+   0x08049015 <+1>:	mov    %esp,%ebp
+   0x08049017 <+3>:	sub    $0x88,%esp   初始化栈
+   0x0804901d <+9>:	mov    %gs:0x14,%eax  这句不是很懂
+   0x08049023 <+15>:	mov    %eax,-0xc(%ebp)
+   0x08049026 <+18>:	xor    %eax,%eax
+   0x08049028 <+20>:	cmpl   $0x6,0x804c3d0     这里说明，你只有解开6个炸弹以后，才能打开隐藏函数
+   0x0804902f <+27>:	jne    0x80490bb <phase_defused+167>
+   0x08049035 <+33>:	lea    -0x5c(%ebp),%eax
+   0x08049038 <+36>:	mov    %eax,0x10(%esp)
+   0x0804903c <+40>:	lea    -0x64(%ebp),%eax
+   0x0804903f <+43>:	mov    %eax,0xc(%esp)
+   0x08049043 <+47>:	lea    -0x60(%ebp),%eax
+   0x08049046 <+50>:	mov    %eax,0x8(%esp)
+   0x0804904a <+54>:	movl   $0x804a200,0x4(%esp)    这里读取 为%D %D %S 
+   0x08049052 <+62>:	movl   $0x804c4d0,(%esp)  这里得到12
+   0x08049059 <+69>:	call   0x8048840 <__isoc99_sscanf@plt>
+   0x0804905e <+74>:	cmp    $0x3,%eax   表明输入三个参数
+   0x08049061 <+77>:	jne    0x80490a7 <phase_defused+147>
+   0x08049063 <+79>:	movl   $0x804a209,0x4(%esp)
+   0x0804906b <+87>:	lea    -0x5c(%ebp),%eax
+   0x0804906e <+90>:	mov    %eax,(%esp)
+---Type <return> to continue, or q <return> to quit---
+   0x08049071 <+93>:	call   0x8048fab <strings_not_equal>
+   0x08049076 <+98>:	test   %eax,%eax
+   0x08049078 <+100>:	jne    0x80490a7 <phase_defused+147>
+   0x0804907a <+102>:	movl   $0x804a2dc,0x4(%esp) 读取Curses, you've found the secret phase!\n
+   0x08049082 <+110>:	movl   $0x1,(%esp)
+   0x08049089 <+117>:	call   0x8048870 <__printf_chk@plt>
+   0x0804908e <+122>:	movl   $0x804a304,0x4(%esp)  读取为But finding it and solving it are quite different...\n 
+   0x08049096 <+130>:	movl   $0x1,(%esp)
+   0x0804909d <+137>:	call   0x8048870 <__printf_chk@plt>
+   0x080490a2 <+142>:	call   0x8048c1b <secret_phase>
+   0x080490a7 <+147>:	movl   $0x804a33c,0x4(%esp)
+   0x080490af <+155>:	movl   $0x1,(%esp)
+   0x080490b6 <+162>:	call   0x8048870 <__printf_chk@plt>
+   0x080490bb <+167>:	mov    -0xc(%ebp),%eax
+   0x080490be <+170>:	xor    %gs:0x14,%eax
+   0x080490c5 <+177>:	je     0x80490cc <phase_defused+184>
+   0x080490c7 <+179>:	call   0x80487b0 <__stack_chk_fail@plt>
+   0x080490cc <+184>:	leave  
+   0x080490cd <+185>:	lea    0x0(%esi),%esi
+   0x080490d0 <+188>:	ret    
+分析与解答：
+首先看到，要先解完6个炸弹，才能进入隐藏函数
+再看到
+ 0x0804904a <+54>:	movl   $0x804a200,0x4(%esp)    这里读取 为%D %D %S 
+0x08049052 <+62>:	movl   $0x804c4d0,(%esp)  这里得到0
+读取
+ 
+ 
+接下来继续看，
+0x08049063 <+79>:	movl   $0x804a209,0x4(%esp)
+   0x0804906b <+87>:	lea    -0x5c(%ebp),%eax
+   0x0804906e <+90>:	mov    %eax,(%esp)
+---Type <return> to continue, or q <return> to quit---
+   0x08049071 <+93>:	call   0x8048fab <strings_not_equal>
+   0x08049076 <+98>:	test   %eax,%eax
+   0x08049078 <+100>:	jne    0x80490a7 <phase_defused+147>
+很明显，在这一段进行了比较，如果你输入的字符串不符合要求，就无法开启隐藏关卡
+读取，0x804a209数据 
+ 
+接下来继续看，
+0x0804907a <+102>:	movl   $0x804a2dc,0x4(%esp) 读取Curses, you've found the secret phase!\n
+   0x08049082 <+110>:	movl   $0x1,(%esp)
+   0x08049089 <+117>:	call   0x8048870 <__printf_chk@plt>  上面几句 就是显示那个地址上的字符串
+   0x0804908e <+122>:	movl   $0x804a304,0x4(%esp)  读取为But finding it and solving it are quite different...\n 
+   0x08049096 <+130>:	movl   $0x1,(%esp)
+   0x0804909d <+137>:	call   0x8048870 <__printf_chk@plt>
+   0x080490a2 <+142>:	call   0x8048c1b <secret_phase>
+   0x080490a7 <+147>:	movl   $0x804a33c,0x4(%esp)
+   0x080490af <+155>:	movl   $0x1,(%esp)
+   0x080490b6 <+162>:	call   0x8048870 <__printf_chk@plt>
+首先看到，这边有几个地址，读取
+ 
+ 
+ 
+
+意识到，只要进入到这一步，就能开启隐藏关卡了
+到了这一步，就能确认只要前面的
+movl   $0x804a200,0x4(%esp)    这里读取 为%D %D %S 
+中输入的%s为DrEvil就能开启隐藏关卡  而且这个字符串应该附在某个答案为两个数字的炸弹后面。
+回顾6个炸弹，发现第3、4、5关均调用了这个 <__isoc99_sscanf@plt>函数。而且这几关关的答案 也为两个数字（说明：这里可以去慢慢调试，确认。我知识因为只有三个关卡，所以打算盲测下）
+暴力测试3个关卡
+ 
+这里，发现一个神奇的现象，在第3.4.5关后面添加DrEvil 均不会报错 同时也进入了隐藏函数（不过最终测试，发现只有第四关后面加，才能进入隐藏函数）
+ 
+
+隐藏函数源码：
+(gdb) disassemble secret_phase
+Dump of assembler code for function secret_phase:
+   0x08048c1b <+0>:	push   %ebp
+   0x08048c1c <+1>:	mov    %esp,%ebp
+   0x08048c1e <+3>:	push   %ebx
+   0x08048c1f <+4>:	sub    $0x14,%esp
+   0x08048c22 <+7>:	call   0x8049206 <read_line>  先读入一行，返回值eax作为函数strtol@plt>的参数之一 
+   0x08048c27 <+12>:	movl   $0xa,0x8(%esp)  a
+   0x08048c2f <+20>:	movl   $0x0,0x4(%esp)  4
+   0x08048c37 <+28>:	mov    %eax,(%esp)
+   0x08048c3a <+31>:	call   0x80488b0 <strtol@plt>    对于函数 <strtol@plt>，作用是将我们输入的数字当作字符串处理，然后转为十进制。简单地说就是输入什么十进制数参数就是那个十进制数本身
+   0x08048c3f <+36>:	mov    %eax,%ebx
+   0x08048c41 <+38>:	lea    -0x1(%eax),%eax
+   0x08048c44 <+41>:	cmp    $0x3e8,%eax
+   0x08048c49 <+46>:	jbe    0x8048c50 <secret_phase+53>   eax<=3e8由这几句知输入的十进制数要小于等于1001。
+   0x08048c4b <+48>:	call   0x80490d1 <explode_bomb>
+   0x08048c50 <+53>:	mov    %ebx,0x4(%esp)    a2
+   0x08048c54 <+57>:	movl   $0x804c178,(%esp)    读出来 0X24=36  a1
+   0x08048c5b <+64>:	call   0x8048bca <fun7>
+   0x08048c60 <+69>:	cmp    $0x5,%eax   返回为5
+   0x08048c63 <+72>:	je     0x8048c6a <secret_phase+79>
+   0x08048c65 <+74>:	call   0x80490d1 <explode_bomb>
+   0x08048c6a <+79>:	movl   $0x804a134,0x4(%esp)   读取"Wow! You've defused the secret stage!\n"
+   0x08048c72 <+87>:	movl   $0x1,(%esp)
+---Type <return> to continue, or q <return> to quit---
+   0x08048c79 <+94>:	call   0x8048870 <__printf_chk@plt>
+   0x08048c7e <+99>:	call   0x8049014 <phase_defused>
+   0x08048c83 <+104>:	add    $0x14,%esp
+   0x08048c86 <+107>:	pop    %ebx
+   0x08048c87 <+108>:	pop    %ebp
+   0x08048c88 <+109>:	ret    
+End of assembler dump.
+
+分析与解答：
+先分析隐藏函数，首先看到<read_line>，表明程序先读入一行，随后返回值%eax作为函数<strtol@plt>的参数之一，也就是我们需要输入一个十进制数。
+再由
+  0x08048c3f <+36>:	mov    %eax,%ebx
+   0x08048c41 <+38>:	lea    -0x1(%eax),%eax
+   0x08048c44 <+41>:	cmp    $0x3e8,%eax
+   0x08048c49 <+46>:	jbe    0x8048c50 <secret_phase+53>   eax<=3e8由这两句知输入的十进制数要小于等于1001。
+表明输入的十进制数要小于等于1001。
+再读到
+0x08048c54 <+57>:	movl   $0x804c178,(%esp)    
+得到数据， 0X24=36
+最后将上面的参数，传入fun7
+调用完fun7后，
+由 这一句cmp    $0x5,%eax
+可知，返回值为5
+   然后分析fun7
+反汇编fun7
+Dump of assembler code for function fun7:
+   0x08048bca <+0>:	push   %ebp
+   0x08048bcb <+1>:	mov    %esp,%ebp
+   0x08048bcd <+3>:	push   %ebx
+   0x08048bce <+4>:	sub    $0x14,%esp
+   0x08048bd1 <+7>:	mov    0x8(%ebp),%edx  第一个参数a1  36
+   0x08048bd4 <+10>:	mov    0xc(%ebp),%ecx   第二个参数a2  输入的数
+   0x08048bd7 <+13>:	mov    $0xffffffff,%eax  
+   0x08048bdc <+18>:	test   %edx,%edx   edx=0 则递归结束
+   0x08048bde <+20>:	je     0x8048c15 <fun7+75>
+   0x08048be0 <+22>:	mov    (%edx),%ebx
+   0x08048be2 <+24>:	cmp    %ecx,%ebx    a2,*a1  
+   0x08048be4 <+26>:	jle    0x8048bf9 <fun7+47>  如果*a1小于等于a2则跳
+   0x08048be6 <+28>:	mov    %ecx,0x4(%esp)  如果*a1>a2,将a1+4的地址传入递归
+   0x08048bea <+32>:	mov    0x4(%edx),%eax
+   0x08048bed <+35>:	mov    %eax,(%esp)
+   0x08048bf0 <+38>:	call   0x8048bca <fun7>  这里递归调用fun7
+   0x08048bf5 <+43>:	add    %eax,%eax   eax加倍
+   0x08048bf7 <+45>:	jmp    0x8048c15 <fun7+75>
+   0x08048bf9 <+47>:	mov    $0x0,%eax   eax=0
+   0x08048bfe <+52>:	cmp    %ecx,%ebx  a2  *a1
+   0x08048c00 <+54>:	je     0x8048c15 <fun7+75>  如果相等，则退出。退出最里面递归条件
+   0x08048c02 <+56>:	mov    %ecx,0x4(%esp)
+---Type <return> to continue, or q <return> to quit---//若*a1<a2将(a1+8)作为地址进入递归 
+   0x08048c06 <+60>:	mov    0x8(%edx),%eax
+   0x08048c09 <+63>:	mov    %eax,(%esp)
+   0x08048c0c <+66>:	call   0x8048bca <fun7>
+   0x08048c11 <+71>:	lea    0x1(%eax,%eax,1),%eax  递归返回值加倍再加1
+   0x08048c15 <+75>:	add    $0x14,%esp  退出
+   0x08048c18 <+78>:	pop    %ebx
+   0x08048c19 <+79>:	pop    %ebp
+   0x08048c1a <+80>:	ret    
+End of assembler dump.
+具体分析如上，
+递归最深处的返回值肯定是0（	mov    $0x0,%eax   eax=0）且那是*a1==a2,最外层返回值为5，则可得出如下反递归过程：(因为是5，所以肯定是2*a+1 而不是2a，后续步骤也是这样原理）  （下面的a1不是一个固定地址，它是变换的，a2不变为我们输入的数）
+（eax）*2+1=5-->eax=2     所以 走下面的循环  有*a1<a2   a1+=8
+（eax）*2==2-->eax=1      所以  走上面的循环 有*a1>a2  a1+=4
+ （eax）*2+1=1-->eax=0    所以  走下面的循环  有*a1<a2  a1+=8
+*a1==a2 跳出
+一共四层
+现在的关键就是找到a1初始的地址，a1是由隐藏函数传入的，从隐藏函数中找到
+ 0x804c178  0x24
+接下来
+则使用p/x *(0x804c178+8)得到了地址0x804c160，这里存储的数字是0x32。
+接下来是p/x *(0x804c160+4)得到地址0x804c148，这里存储的数字是0x2d。
+最后一次，p/x  *(0x804c148+8)，得到地址0x804c0dc，这里存储的数字就是我们所要输入的0x2f,也就是十进制的47。  
+2f大于24走下面循环 2f小于32 走上面循环 2f大于2d走下面循环 2f=2f回退递归
+ 
+这个数也小于1001 满足传入条件
+整体调试：
+ 
+
+问题：
+1.从反汇编出来的程序角度看，为什么貌似所有的程序最终都是以栈执行的？
+2.mov    %gs:0x14,%eax  
+ xchg   %ax,%ax
+ 这两句汇编什么意思
+3.func4的递归程序还不是很懂
+4.   
+   0x08048d6a <+0>:	push   %ebp
+   0x08048d6b <+1>:	mov    %esp,%ebp
+   0x08048d6d <+3>:	push   %esi
+   0x08048d6e <+4>:	push   %ebx
+   0x08048d6f <+5>:	sub    $0x30,%esp
+
+  0x08048d6a <+0>:	push   %ebp
+   0x08048d6b <+1>:	mov    %esp,%ebp
+   0x08048d6f <+5>:	sub    $0x30,%esp
+
+多压了esi和ebx寄存器 有什么区别
+
+5.为什么有时栈中临时变量区一直有对称的结构
+实验心得：
+通过这次二进制炸弹实验，我对汇编代码的阅读能力有了大大的提升，也学会了如何通过GDB神器反汇编调试代码。
