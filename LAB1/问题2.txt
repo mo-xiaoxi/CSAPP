@@ -1,0 +1,14 @@
+a100
+mov dx,0
+mov si,200
+mov bl ,[si]
+mov al,bl
+mul bl
+cmp al,0
+jz 0115
+add dx,ax
+inc si
+jmp 0106
+mov si,240
+mov [si],dx
+int 20
