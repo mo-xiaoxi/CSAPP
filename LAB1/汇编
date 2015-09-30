@@ -1,0 +1,19 @@
+mov dx,0
+mov si,200
+mov bl,[si]
+mov al,bl
+mul bl
+cmp al,0
+jz 0117
+add dx,ax
+jc 011E
+inc si
+jmp 0106
+mov si,300
+mov [si],dx
+int 20
+mov dx,0127
+mov ah,9
+int 21
+int 20
+DB 'Overflow Error!&'
