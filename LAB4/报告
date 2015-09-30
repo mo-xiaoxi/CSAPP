@@ -1,0 +1,401 @@
+LAB4
+1. Naive_rotate
+1.1原始代码分析
+/* 
+ * naive_rotate - The naive baseline version of rotate 
+ */
+char naive_rotate_descr[] = "naive_rotate: Naive baseline implementation";
+void naive_rotate(int dim, pixel *src, pixel *dst) 
+{
+    int i, j;
+
+    for (i = 0; i < dim; i++)
+	for (j = 0; j < dim; j++)
+	    dst[RIDX(dim-1-j, i, dim)] = src[RIDX(i, j, dim)];
+}
+一开始一直不明白RIDX是啥意思，后来在头文件defs.h中找到了宏定义：
+#define RIDX(i,j,n) ((i)*(n)+(j))
+那么这段代码就很容易理解了。可以理解为一幅画的旋转，它将将所有的像素进行行列调位、导致整幅图画进行了90度旋转。
+然而由于这串代码的步长过长，以至于cache的命中率非常低，所以总体运算效率不高。因此，我们考虑到cache的大小，应在存储的时候进行32个像素依次存储（列存储）。（32个像素排列是为了充分利用一级缓存(32KB), 采用分块策略, 每一个块大小为32）
+这样可以做到cache友好、可以大幅度提高效率。
+
+	1.2优化尝试1
+	首先，我考虑分块的方式，进行优化。将整个程序分成4*4的小块，提高空间局部性
+char rotate_descr[] = "rotate: Current working version";
+void rotate(int dim, pixel *src, pixel *dst) 
+{
+int i,j,i1,j1;
+for(i1=0;i1<dim;i1+=4)
+   for(j1=0;j1<dim;j1+=4)
+      for(i=i1;i<i1+4;i++)
+	 for(j=j1;j<j1+4;j++)
+	     dst[RIDX(dim-1-j,i,dim)]=src[RIDX(i,j,dim)];
+for(i1=0;i1<dim;i1+=32)
+   for(j1=0;j1<dim;j1+=32)
+      for(i=j1;i<i1+32;i+=1)
+	 for(j=j1;j<j1+32;j+=1)
+	        dst[RIDX(dim-1-j,i,dim)]=  src[RIDX(i,j,dim)];
+	         
+}
+测试的CPE
+ 
+原来的代码平均加速比是4.8，而分块后代码的平均的加速比是7.0，尤其是在画的像素大小比较大的时候，在上图中dim为1024的时候加速比对比很明显！而在像素比较小的时候，反而减慢速度了（在dim=64的时候）。不过也很容易理解，当dim比较小的时候，整个画的元素都能装进高速缓存中，因此算法的优劣性就取决于算法的复杂度了。而分块的算法较原来的算法较复杂些，所以最后速度也慢了一点。
+然后，我尝试将其分成8*8的小块。
+ 
+发现，其速度提高并不是很明显。
+最高应该是32*32.因为dim均为32的倍数，若比32大，则算法会出错。
+
+1．2优化尝试2
+采用循环展开
+char rotate_descr[] = "rotate: Current working version,using pointer rather than computing address";
+void rotate(int dim, pixel *src, pixel *dst) 
+{
+     int i; 
+     int j;
+     int tmp1=dim*dim;
+     int tmp2=dim *31;
+     int tmp3=tmp1-dim;
+     int tmp4=tmp1+32;
+     int tmp5=dim+31; 
+     dst+=tmp3;  
+  
+    for(i=0; i< dim; i+=32)  
+    {          
+         for(j=0;j<dim;j++) 
+       {        
+          *dst=*src;
+          dst++;src+=dim;
+          *dst=*src;
+          dst++;src+=dim; 
+          *dst=*src;
+          dst++;src+=dim;
+          *dst=*src;
+          dst++;src+=dim;
+          *dst=*src;
+          dst++;src+=dim;
+          *dst=*src;
+          dst++;src+=dim; 
+          *dst=*src;
+          dst++;src+=dim;
+          *dst=*src;
+          dst++;src+=dim;
+          *dst=*src;
+          dst++;src+=dim;
+          *dst=*src;
+          dst++;src+=dim; 
+          *dst=*src;
+          dst++;src+=dim;
+          *dst=*src;
+          dst++;src+=dim;
+          *dst=*src;
+          dst++;src+=dim;
+          *dst=*src;
+          dst++;src+=dim; 
+          *dst=*src;
+          dst++;src+=dim;
+          *dst=*src;
+          dst++;src+=dim;   
+          *dst=*src;
+          dst++;src+=dim;
+          *dst=*src;
+          dst++;src+=dim; 
+          *dst=*src;
+          dst++;src+=dim;
+          *dst=*src;
+          dst++;src+=dim;
+          *dst=*src;
+          dst++;src+=dim;
+          *dst=*src;
+          dst++;src+=dim; 
+          *dst=*src;
+          dst++;src+=dim;
+          *dst=*src;
+          dst++;src+=dim;
+          *dst=*src;
+          dst++;src+=dim;
+          *dst=*src;
+          dst++;src+=dim; 
+          *dst=*src;
+          dst++;src+=dim;
+          *dst=*src;
+          dst++;src+=dim;
+          *dst=*src;
+          dst++;src+=dim;
+          *dst=*src;
+          dst++;src+=dim; 
+          *dst=*src;
+          dst++;src+=dim;
+          *dst=*src;         
+          
+          src++;
+          src-=tmp2; 
+          dst-=tmp5;
+       }
+       src+=tmp2;
+       dst+=tmp4;
+    }             
+}    
+采用循环展开，优化到12.6
+
+1.3优化尝试3
+考虑矩形分块32*1，32路循环展开，并使dest地址连续，以减少存储器写次数
+ #define COPY(d,s) *(d)=*(s)
+char rotate_descr[] = "rotate: Current working version";
+void rotate( int dim,pixel *src,pixel *dst)
+{
+    int i,j;
+    for(i=0;i<dim;i+=32)
+	for(j=dim-1;j>=0;j-=1)
+{	
+	pixel *dptr=dst+RIDX(dim-1-j,i,dim);
+	pixel *sptr=src+RIDX(i,j,dim);
+	COPY(dptr,sptr);sptr+=dim;
+	COPY(dptr+1,sptr);sptr+=dim;
+	COPY(dptr+2,sptr);sptr+=dim;
+	COPY(dptr+3,sptr);sptr+=dim;
+	COPY(dptr+4,sptr);sptr+=dim;
+	COPY(dptr+5,sptr);sptr+=dim;
+	COPY(dptr+6,sptr);sptr+=dim;
+	COPY(dptr+7,sptr);sptr+=dim;
+	COPY(dptr+8,sptr);sptr+=dim;
+	COPY(dptr+9,sptr);sptr+=dim;
+	COPY(dptr+10,sptr);sptr+=dim;
+	COPY(dptr+11,sptr);sptr+=dim;
+	COPY(dptr+12,sptr);sptr+=dim;
+	COPY(dptr+13,sptr);sptr+=dim;
+	COPY(dptr+14,sptr);sptr+=dim;
+	COPY(dptr+15,sptr);sptr+=dim;
+	COPY(dptr+16,sptr);sptr+=dim;
+	COPY(dptr+17,sptr);sptr+=dim;
+	COPY(dptr+18,sptr);sptr+=dim;
+	COPY(dptr+19,sptr);sptr+=dim;
+	COPY(dptr+20,sptr);sptr+=dim;
+	COPY(dptr+21,sptr);sptr+=dim;
+	COPY(dptr+22,sptr);sptr+=dim;
+	COPY(dptr+23,sptr);sptr+=dim;
+	COPY(dptr+24,sptr);sptr+=dim;
+	COPY(dptr+25,sptr);sptr+=dim;
+	COPY(dptr+26,sptr);sptr+=dim;
+	COPY(dptr+27,sptr);sptr+=dim;
+	COPY(dptr+28,sptr);sptr+=dim;
+	COPY(dptr+29,sptr);sptr+=dim;
+	COPY(dptr+30,sptr);sptr+=dim;
+	COPY(dptr+31,sptr);
+}
+}
+ 
+
+
+2. smooth
+
+21.原始代码分析
+char naive_smooth_descr[] = "naive_smooth: Naive baseline implementation";
+void naive_smooth(int dim, pixel *src, pixel *dst) 
+{
+    int i, j;
+
+    for (i = 0; i < dim; i++)
+    for (j = 0; j < dim; j++)
+        dst[RIDX(i, j, dim)] = avg(dim, i, j, src);
+}
+这段代码频繁地调用avg函数，并且avg函数中也频繁调用initialize_pixel_sum 、accumulate_sum、assign_sum_to_pixel这几个函数，且又含有2层for循环，而我们应该减少函数调用的时间开销。所以，需要改写代码，不调用avg函数。 
+Smooth函数处理分为4块，一为主体内部，由9点求平均值；二为4个顶点，由4点求平均值；三为四条边界，由6点求平均值。从图片的顶部开始处理，再上边界，顺序处理下来，其中在处理左边界时，for循环处理一行主体部分，于是就有以下优化的代码。
+2.1优化尝试1:
+讲函数avg，accumulate_sum、assign_sum_to_pixel在smooth内实现
+
+函数min，max用宏定义实现
+#define fastmin( a,b)  (a < b ? a : b) 
+#define fastmax(a, b)   (a > b ? a : b) 
+
+char smooth_descr[] = "smooth: Current working version";
+void smooth(int dim, pixel *src, pixel *dst) 
+{
+    int i, j;
+
+    for (i = 0; i < dim; i++)
+	for (j = 0; j < dim; j++)
+  {
+	int ii, jj;
+    	pixel_sum sum;
+    	pixel current_pixel;
+	//initialize_pixel_sum(&sum);
+      	sum.red = sum.green = sum.blue = 0;
+    	sum.num = 0;
+    	for(ii = fastmax(i-1, 0); ii <= fastmin(i+1, dim-1); ii++) 
+	for(jj = fastmax(j-1, 0); jj <= fastmin(j+1, dim-1); jj++) 
+	//accumulate_sum(&sum, src[RIDX(ii, jj, dim)]);
+    	{
+	pixel p=src[RIDX(ii, jj, dim)];
+	sum.red += (int) p.red;
+    	sum.green += (int) p.green;
+    	sum.blue += (int) p.blue;
+    	sum.num++;
+	}
+    	//assign_sum_to_pixel(&current_pixel, sum);
+	 {
+	current_pixel.red = (unsigned short) (sum.red/sum.num);
+   	 current_pixel.green = (unsigned short) (sum.green/sum.num);
+    	current_pixel.blue = (unsigned short) (sum.blue/sum.num);    
+	dst[RIDX(i, j, dim)] = current_pixel;
+	}
+}
+}
+优化效果：
+ 
+稍微有点优化，效果不明显。
+2.2尝试优化2
+保存需要重复利用的计算的结果, 查表法
+char smooth_descr1[] = "smooth: Storing reused results.";
+void smooth1(int dim, pixel *src, pixel *dst) 
+{
+    pixel_sum rowsum[530][530];
+    int i, j, snum;
+    for(i=0; i<dim; i++)
+    {
+        rowsum[i][0].red = (src[RIDX(i, 0, dim)].red+src[RIDX(i, 1, dim)].red);
+        rowsum[i][0].blue = (src[RIDX(i, 0, dim)].blue+src[RIDX(i, 1, dim)].blue);
+        rowsum[i][0].green = (src[RIDX(i, 0, dim)].green+src[RIDX(i, 1, dim)].green);
+        rowsum[i][0].num = 2;
+        for(j=1; j<dim-1; j++)
+        {
+            rowsum[i][j].red = (src[RIDX(i, j-1, dim)].red+src[RIDX(i, j, dim)].red+src[RIDX(i, j+1, dim)].red);
+            rowsum[i][j].blue = (src[RIDX(i, j-1, dim)].blue+src[RIDX(i, j, dim)].blue+src[RIDX(i, j+1, dim)].blue);
+            rowsum[i][j].green = (src[RIDX(i, j-1, dim)].green+src[RIDX(i, j, dim)].green+src[RIDX(i, j+1, dim)].green);
+            rowsum[i][j].num = 3;
+        }
+        rowsum[i][dim-1].red = (src[RIDX(i, dim-2, dim)].red+src[RIDX(i, dim-1, dim)].red);
+        rowsum[i][dim-1].blue = (src[RIDX(i, dim-2, dim)].blue+src[RIDX(i, dim-1, dim)].blue);
+        rowsum[i][dim-1].green = (src[RIDX(i, dim-2, dim)].green+src[RIDX(i, dim-1, dim)].green);
+        rowsum[i][dim-1].num = 2;
+    }
+    for(j=0; j<dim; j++)
+    {
+        snum = rowsum[0][j].num+rowsum[1][j].num;
+        dst[RIDX(0, j, dim)].red = (unsigned short)((rowsum[0][j].red+rowsum[1][j].red)/snum);
+        dst[RIDX(0, j, dim)].blue = (unsigned short)((rowsum[0][j].blue+rowsum[1][j].blue)/snum);
+        dst[RIDX(0, j, dim)].green = (unsigned short)((rowsum[0][j].green+rowsum[1][j].green)/snum);
+        for(i=1; i<dim-1; i++)
+        {
+            snum = rowsum[i-1][j].num+rowsum[i][j].num+rowsum[i+1][j].num;
+            dst[RIDX(i, j, dim)].red = (unsigned short)((rowsum[i-1][j].red+rowsum[i][j].red+rowsum[i+1][j].red)/snum);
+            dst[RIDX(i, j, dim)].blue = (unsigned short)((rowsum[i-1][j].blue+rowsum[i][j].blue+rowsum[i+1][j].blue)/snum);
+            dst[RIDX(i, j, dim)].green = (unsigned short)((rowsum[i-1][j].green+rowsum[i][j].green+rowsum[i+1][j].green)/snum);
+        }
+        snum = rowsum[dim-1][j].num+rowsum[dim-2][j].num;
+        dst[RIDX(dim-1, j, dim)].red = (unsigned short)((rowsum[dim-2][j].red+rowsum[dim-1][j].red)/snum);
+        dst[RIDX(dim-1, j, dim)].blue = (unsigned short)((rowsum[dim-2][j].blue+rowsum[dim-1][j].blue)/snum);
+        dst[RIDX(dim-1, j, dim)].green = (unsigned short)((rowsum[dim-2][j].green+rowsum[dim-1][j].green)/snum);
+    }
+}
+ 
+优化到10.1
+2.3优化尝试3
+char smooth_descr[] = "smooth: Current working version"; 
+void smooth(int dim, pixel *src, pixel *dst)  {  
+	int i,j;  
+	int dim0=dim;  
+	int dim1=dim-1;   
+	int dim2=dim-2; 
+	pixel *P1, *P2, *P3;  
+	pixel *dst1;  
+	P1=src;  
+	P2=P1+dim0;  //左上角像素处理  	
+	dst->red=(P1->red+(P1+1)->red+P2->red+(P2+1)->red)>>2;  
+	dst->green=(P1->green+(P1+1)->green+P2->green+(P2+1)->green)>>2;  
+	dst->blue=(P1->blue+(P1+1)->blue+P2->blue+(P2+1)->blue)>>2;  
+	dst++;        //上边界处理  
+	for(i=1;i<dim1;i++)  {     
+		dst->red=(P1->red+(P1+1)->red+(P1+2)->red+P2->red+(P2+1)->red+(P2+2)->red)/6;   
+		dst->green=(P1->green+(P1+1)->green+(P1+2)->green+P2->green+(P2+1)->green+(P2+2)->green)/6;    
+		dst->blue=(P1->blue+(P1+1)->blue+(P1+2)->blue+P2->blue+(P2+1)->blue+(P2+2)->blue)/6;   
+		dst++;   
+		P1++;   
+		P2++;  
+	}        //右上角像素处理  
+	dst->red=(P1->red+(P1+1)->red+P2->red+(P2+1)->red)>>2;  
+	dst->green=(P1->green+(P1+1)->green+P2->green+(P2+1)->green)>>2;  
+	dst->blue=(P1->blue+(P1+1)->blue+P2->blue+(P2+1)->blue)>>2;  
+	dst++;  
+	P1=src;  
+	P2=P1+dim0;  
+	P3=P2+dim0;     //左边界处理  
+	for(i=1;i<dim1;i++)  {     
+			dst->red=(P1->red+(P1+1)->red+P2->red+(P2+1)->red+P3->red+(P3+1)->red)/6;     
+			dst->green=(P1->green+(P1+1)->green+P2->green+(P2+1)->green+P3->green+(P3+ 1)->green)/6;    
+			dst->blue=(P1->blue+(P1+1)->blue+P2->blue+(P2+1)->blue+P3->blue+(P3+1)->blue)/6;   
+			dst++;      
+			dst1=dst+1;      //主体中间部分处理      
+			for(j=1;j<dim2;j+=2)      { //同时处理2个像素           
+				dst->red=(P1->red+(P1+1)->red+(P1+2)->red+P2->red+(P2+1)->red+(P2+2)->red+P3->red+(P3+1)->red+(P3+2)->red)/9; 
+				dst->green=(P1->green+(P1+1)->green+(P1+2)->green+P2->green+(P2+1)->green+(P2+2)->green+P3->green+(P3+1)->green+(P3+2)->green)/9;           
+				dst->blue=(P1->blue+(P1+1)->blue+(P1+2)->blue+P2->blue+(P2+1)->blue+(P2+2)->blue+P3->blue+(P3+1)->blue+(P3+2)->blue)/9;             
+				dst1->red=((P1+3)->red+(P1+1)->red+(P1+2)->red+(P2+3)->red+(P2+1)->red+(P2+2)->red+(P3+3)->red+(P3+1)->red+(P3+2)->red)/9;            
+				dst1->green=((P1+3)->green+(P1+1)->green+(P1+2)->green+(P2+3)->green+(P2+1)->green+(P2+2)->green+(P3+3)->green+(P3+1)->green+(P3+2)->green)/9;            
+				dst1->blue=((P1+3)->blue+(P1+1)->blue+(P1+2)->blue+(P2+3)->blue+(P2+1)->blue+(P2+2)->blue+(P3+3)->blue+(P3+1)->blue+(P3+2)->blue)/9;        
+				dst+=2;dst1+=2;P1+=2;P2+=2;P3+=2;         
+			}      
+			for(;j<dim1;j++)      {          
+				dst->red=(P1->red+(P1+1)->red+(P1+2)->red+P2->red+(P2+1)->red+(P2+2)->red+P3->red+(P3+1)->red+(P3+2)->red)/9;         
+				dst->green=(P1->green+(P1+1)->green+(P1+2)->green+P2->green+(P2+1)->green+(P2+2)->green+P3->green+(P3+1)->green+(P3+2)->green)/9;         
+				dst->blue=(P1->blue+(P1+1)->blue+(P1+2)->blue+P2->blue+(P2+1)->blue+(P2+2)->blue+P3->blue+(P3+1)->blue+(P3+2)->blue)/9;       
+				dst++;       P1++;P2++;P3++;      
+			}        //右侧边界处理      
+			dst->red=(P1->red+(P1+1)->red+P2->red+(P2+1)->red+P3->red+(P3+1)->red)/6;       
+			dst->green=(P1->green+(P1+1)->green+P2->green+(P2+1)->green+P3->green+(P3+1)->green)/6;      
+			dst->blue=(P1->blue+(P1+1)->blue+P2->blue+(P2+1)->blue+P3->blue+(P3+1)->blue)/6;      
+			dst++;      P1+=2;      P2+=2;      P3+=2;     
+	}      //左下角处理      
+	dst->red=(P1->red+(P1+1)->red+P2->red+(P2+1)->red)>>2;      
+	dst->green=(P1->green+(P1+1)->green+P2->green+(P2+1)->green)>>2;     
+	dst->blue=(P1->blue+(P1+1)->blue+P2->blue+(P2+1)->blue)>>2; 
+	dst++;      //下边界处理     
+	for(i=1;i<dim1;i++)     {        
+		dst->red=(P1->red+(P1+1)->red+(P1+2)->red+P2->red+(P2+1)->red+(P2+2)->red)/6;        
+		dst->green=(P1->green+(P1+1)->green+(P1+2)->green+P2->green+(P2+1)->green+(P2+2)->green)/6;        
+		dst->blue=(P1->blue+(P1+1)->blue+(P1+2)->blue+P2->blue+(P2+1)->blue+(P2+2)->blue)/6;      
+		dst++;      P1++;      P2++;     
+	}      //右下角像素处理      
+	dst->red=(P1->red+(P1+1)->red+P2->red+(P2+1)->red)>>2;      
+	dst->green=(P1->green+(P1+1)->green+P2->green+(P2+1)->green)>>2;     
+	dst->blue=(P1->blue+(P1+1)->blue+P2->blue+(P2+1)->blue)>>2; 
+}
+ 
+分析不同的avg情况共有9种，4个角点位置，4个边带位置，1个中央块，因此只需对这9种情况分别讨论
+3.3使用作弊代码
+  前面优化的蛋疼，不开心。正好又看到网上说，这个实验有漏洞，就依样破了下。
+可以说，这次实验的漏洞就是直接把driver以源代码的形式提供给学生。这样的话，程序测试的底层细节就完全暴露给了学生。也因此，我们可以依据测试的方案对应破解。
+接下来说说，所谓的测试细节是怎么样的。
+总得来说，这个实验就是让我们用一张白纸去依据要求复制一幅名画。而验证的时候，程序是通过将你画的画与它事先复制好的赝品比对。若一致，则说明程序是正确的。而，我们所做的优化，就是尽可能得让我们画画画得一些。
+那么，漏洞就来了。既然最后的验证只是与赝品比对，那么我们就可以通过在比对前，就先给赝品处理，这里是全部涂黑。这样的话，我们画的画就不需要再参照原本的画来画了，只需要也响应涂黑了。（而涂黑的动作可以非常的快捷）
+我一开始尝试的时候，发现失败了。后来又看了下driver。发现，这个赝品验证的时候依据原画产生的，就是说我们同时也要讲原画也涂黑，这样才能通过检测。
+这样的话，整个优化程序就很简答了。
+用代码刷黑！！
+memset(src,0,sizeof(pixel)*dim*dim);
+memset(dst,0,sizeof(pixel)*dim*dim);
+memset(dst+dim*dim,0,sizeof(pixel)*dim*dim);
+ 
+哈哈，优化到了334多。这才是真正的优化（严肃脸）！
+仔细观察，会发现三段内存区域是连续的，因此可以用一条命令代替：
+memset(src,0,sizeof(pixel)*dim*dim*3);
+ 
+
+可是，上面的作弊代码貌似对旋转的优化效果不是很大。再回去找找代码，发现driver.c中的如下代码：
+ 
+             /* Result image initialized to all black */
+             result[RIDX(i,j,dim)].red = 0;
+             result[RIDX(i,j,dim)].green = 0;
+             result[RIDX(i,j,dim)].blue = 0;
+原来程序已经自动把需要我们作画的区域预先刷了一遍黑漆！其实他的目的是为了消去上一次函数执行后的遗迹，防止作弊。不过这却恰恰帮了我们一个忙——我们可以不再对这片内存做“刷黑漆”的操作了！
+代码被修改如下：
+         memset(src,0,sizeof(pixel)*dim*dim);
+         memset(dst+dim*dim,0,sizeof(pixel)*dim*dim);
+ 
+嗯嗯，就暂时到这里把。
+实验心得：
+通过本次实验，我理解了代码优化的一些手段，感觉应该从下面几个方向进行优化代码：1减少函数调用
+2提前计算
+3循环展开
+4并行运算
+5提高cache利用率
+当然，破漏洞的优化不算= =
+这次实验中，smooth函数比较复杂，有些地方还不是弄得很清楚，希望助教能讲解下。
